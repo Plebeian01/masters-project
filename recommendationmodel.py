@@ -2,6 +2,21 @@
 """
 Created on Sun Jun 22 18:37:06 2025
 
+This script builds and trains a movie recommendation model.
+It preprocesses movie and user data, trains a RandomForestRegressor model,
+and provides movie recommendations for new users.
+"""
+print("""\
+This script performs the following actions:
+1. Loads movie and rating data.
+2. Engineers features for movies (genres, release year, popularity) and users (genre preferences, rating stats, activity, SVD latent factors).
+3. Trains a RandomForestRegressor model to predict movie ratings.
+4. Provides a function to recommend movies for new users based on seed ratings.
+5. Uses SHAP to explain the model's recommendations for a given user and movie.
+""")
+"""
+Created on Sun Jun 22 18:37:06 2025
+
 @author: freez
 """
 
