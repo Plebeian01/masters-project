@@ -126,6 +126,9 @@ data = (
       .merge(movie_features, left_on='movieId', right_index=True)
 )
 
+data = data.replace([np.inf, -np.inf], np.nan)  # turn inf → nan
+data = data.fillna(0.)                           # then nan → 0
+
 X = data[user_feature_cols + movie_feature_cols]
 y = data['rating']
 
@@ -165,7 +168,6 @@ def recommend(new_user_ratings, top_k=10):
     # build the one-row user_features vector
     user_row = pd.Series(
         {**gsum.add_suffix('_sum').to_dict(),
-         **gcount.add_suffix('_count').to_dict(),
          **gmean.add_suffix('_mean').to_dict(),
          'genre_entropy':        ent,
          'avg_rating':           avg_r,
@@ -178,20 +180,24 @@ def recommend(new_user_ratings, top_k=10):
         name='new_user'
     ).reindex(user_feature_cols).fillna(0)
 
-    # assemble one row per candidate movie
+      # 5b) assemble one row per candidate movie
     all_movies = movie_features.index
     uf = pd.DataFrame([user_row.values]*len(all_movies),
                       index=all_movies, columns=user_feature_cols)
     mf = movie_features.loc[all_movies, movie_feature_cols]
     X_new = pd.concat([uf, mf], axis=1)
 
-    # predict & take top-K
-    rec = (
-      pd.Series(rf.predict(X_new), index=X_new.index)
-        .nlargest(top_k)
-        .rename_axis('movieId')
-        .reset_index(name='pred_rating')
-        .merge(movies[['movieId','title']], on='movieId')
+    # <<< NEW: scrub X_new just like training data! >>>
+    X_new = X_new.replace([np.inf, -np.inf], np.nan)
+    X_new = X_new.fillna(0.)
+
+    # 5c) predict & take top-K
+    preds = rf.predict(X_new)
+    rec   = (
+        pd.Series(preds, index=X_new.index, name='pred_rating')
+          .nlargest(top_k)
+          .reset_index()
+          .merge(movies[['movieId','title']], on='movieId')
     )
     return rec, X_new
 
