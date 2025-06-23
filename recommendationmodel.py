@@ -158,7 +158,7 @@ def recommend(new_user_ratings, top_k=10):
           .fillna(0)
 
     # per-user genre stats
-    gsum   = df[gen_cols].mul(df['rating'], axis=0).sum()
+    gsum   = df[gen_cols].sum() # Corrected: Sum of genre vectors (not rating-weighted)
     gcount = df[gen_cols].count()
     gmean  = gsum.div(gcount.replace(0,1))
     ent    = genre_entropy(gmean)
