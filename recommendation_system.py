@@ -556,3 +556,130 @@ if __name__ == '__main__':
 
 
     print("\n--- End of XGBoost Hybrid Recommendation System Script ---")
+
+
+# --- Plan Step 1 & 2 (New Plan for New User): Define and Integrate `get_new_user_recommendations` Function ---
+# print("\nStep 7: Defining function for new user recommendations...") # Already part of the function log
+
+def get_new_user_recommendations(
+    new_user_ratings_input, # List of tuples: [('Movie Title 1', 5.0), ...]
+    n,
+    model,
+    all_movie_features_df,
+    historical_user_factors_df, # This is user_factors_df
+    original_X_columns,
+    title_to_movie_id_map,
+    movie_id_to_title_map
+    ):
+    """
+    Generates movie recommendations for a new user based on a small list of liked movies.
+    SVD factors for the new user are estimated using the average of historical users.
+    """
+    print(f"\nGenerating recommendations for a new user who liked: {new_user_ratings_input}")
+
+    # Convert input movie titles to movieIds and collect ratings
+    liked_movie_ids = set()
+    valid_ratings = []
+    for title, rating in new_user_ratings_input:
+        movie_id = title_to_movie_id_map.get(title)
+        if movie_id:
+            liked_movie_ids.add(movie_id)
+            valid_ratings.append(rating)
+        else:
+            print(f"Warning: Movie title '{title}' not found in dataset. Skipping for new user profile.")
+
+    if not liked_movie_ids:
+        print("No valid liked movies found for the new user. Cannot generate recommendations.")
+        return []
+
+    # Calculate new user's explicit features
+    new_user_avg_rating = np.mean(valid_ratings) if valid_ratings else 0.0 # Will be 5.0 if all are 5.0
+    new_user_num_ratings = len(valid_ratings)
+
+    print(f"New user profile: Avg Rating={new_user_avg_rating:.2f}, Num Ratings={new_user_num_ratings}")
+
+    # Calculate new user's SVD factors (average of historical users)
+    avg_user_svd_factors = historical_user_factors_df[[col for col in historical_user_factors_df.columns if col.startswith('uf_svd_')]].mean()
+
+    new_user_feature_data = {
+        'user_avg_rating': new_user_avg_rating,
+        'user_num_ratings': new_user_num_ratings
+    }
+    for col, val in avg_user_svd_factors.items():
+        if col in original_X_columns:
+             new_user_feature_data[col] = val
+
+    candidate_movies_predictions = []
+    for movie_id_candidate in all_movie_features_df.index:
+        if movie_id_candidate not in liked_movie_ids:
+            movie_f_candidate = all_movie_features_df.loc[movie_id_candidate]
+
+            combined_features_for_pred = {}
+            for col_template in original_X_columns:
+                if col_template in new_user_feature_data:
+                    combined_features_for_pred[col_template] = new_user_feature_data[col_template]
+                elif col_template in movie_f_candidate.index:
+                    combined_features_for_pred[col_template] = movie_f_candidate[col_template]
+                else:
+                    combined_features_for_pred[col_template] = 0
+
+            feature_vector_df_pred = pd.DataFrame([combined_features_for_pred], columns=original_X_columns)
+            feature_vector_df_pred = feature_vector_df_pred.fillna(0)
+
+            try:
+                predicted_rating = model.predict(feature_vector_df_pred)[0]
+                candidate_movies_predictions.append({'movieId': movie_id_candidate, 'predicted_rating': predicted_rating})
+            except Exception as e:
+                print(f"Error predicting for movie {movie_id_candidate} for new user: {e}")
+                continue
+
+    candidate_movies_predictions.sort(key=lambda x: x['predicted_rating'], reverse=True)
+
+    top_n_recommendations = []
+    for rec in candidate_movies_predictions[:n]:
+        top_n_recommendations.append({
+            'title': movie_id_to_title_map.get(rec['movieId'], "Unknown Movie"),
+            'predicted_rating': rec['predicted_rating'],
+            'movieId': rec['movieId']
+        })
+
+    return top_n_recommendations
+
+# Moved the print statement here to reflect it's part of the script execution flow now.
+print("Function `get_new_user_recommendations` defined (Step 7).")
+
+
+if __name__ == '__main__':
+    # ... (previous __main__ content remains unchanged up to historical user explanations)
+
+    # --- Test new user recommendation ---
+    print("\n\n--- Testing New User Recommendation Scenario ---")
+    # Define 5 movies the "new user" has rated 5.0
+    # Ensure these titles exist in your movies.csv for title_to_movie_id_map to work
+    new_user_liked_movies = [
+        ("Toy Story (1995)", 5.0),
+        ("Jumanji (1995)", 5.0),
+        ("Grumpier Old Men (1995)", 5.0),
+        ("Heat (1995)", 5.0),
+        ("Sabrina (1995)", 5.0)
+    ]
+
+    new_user_recs = get_new_user_recommendations(
+        new_user_ratings_input=new_user_liked_movies,
+        n=5,
+        model=xgb_model,
+        all_movie_features_df=movie_features_df, # Corrected variable name
+        historical_user_factors_df=user_factors_df, # This is the correct df for SVD user factors
+        original_X_columns=X_train.columns,
+        title_to_movie_id_map=title_to_movie_id, # Corrected variable name
+        movie_id_to_title_map=movie_id_to_title # Corrected variable name
+    )
+
+    if new_user_recs:
+        print(f"\nTop 5 recommendations for the new user:")
+        for rec in new_user_recs:
+            print(f"- {rec['title']} (Predicted XGBoost Rating: {rec['predicted_rating']:.4f}) (MovieID: {rec['movieId']})")
+    else:
+        print("Could not generate recommendations for the new user.")
+
+    print("\n--- End of Script ---")
