@@ -21,8 +21,8 @@ from sklearn.metrics import mean_squared_error
 print("Step 0: Loading and Basic Preprocessing Data...")
 
 # Load datasets
-movies_df = pd.read_csv('../dataset/ml-latest-small/movies.csv')
-ratings_df = pd.read_csv('../dataset/ml-latest-small/ratings.csv')
+movies_df = pd.read_csv('../dataset/100kDataset/movies.csv')
+ratings_df = pd.read_csv('../dataset/100kDataset/ratings.csv')
 
 # Display basic info
 # print("Movies DataFrame:")
@@ -37,14 +37,10 @@ print(ratings_df.head())
 
 # Merge dataframes
 df = pd.merge(ratings_df, movies_df, on='movieId')
-print("\nMerged DataFrame head:")
-print(df.head())
 
-# Feature Engineering: Extract year from title
+# Extract year from title
 df['year'] = df['title'].str.extract(r'\((\d{4})\)')
 df['year'] = pd.to_numeric(df['year'], errors='coerce') # errors='coerce' will turn non-numeric years into NaT/NaN
-print("\nDataFrame with year extracted:")
-print(df.head())
 
 # Feature Engineering: One-hot encode genres
 genres_dummies = df['genres'].str.get_dummies(sep='|')
@@ -666,9 +662,9 @@ if __name__ == '__main__':
     new_user_liked_movies = [
         ("Toy Story (1995)", 5.0),
         ("Jumanji (1995)", 5.0),
-        ("Balto (1995)", 5.0),
-        ("Now and Then (1995)", 5.0),
-        ("It Takes Two (1995)", 5.0)
+        ("Mighty Morphin Power Rangers: The Movie (1995)", 5.0),
+        ("Goofy Movie, A (1995)", 5.0),
+        ("Wizard of Oz, The (1939)", 5.0)
     ]
 
     new_user_recs = get_new_user_recommendations(
