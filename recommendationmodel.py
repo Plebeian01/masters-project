@@ -247,7 +247,9 @@ print(f"XGBoost Test RMSE: {rmse_test:.4f}")
 # --- Plan Step 5: Implement Recommendation Generation with XGBoost ---
 print("\nStep 5: Implementing Recommendation Generation with XGBoost...")
 
-def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_features, svd_trainset, original_X_columns):
+MIN_RATINGS_THRESHOLD = 10 # Default minimum ratings threshold
+
+def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_features, svd_trainset, original_X_columns, min_ratings_threshold=MIN_RATINGS_THRESHOLD):
     """
     Generates movie recommendations for a user using the trained XGBoost model.
     Args:
@@ -258,6 +260,7 @@ def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_feat
         all_movie_features (pd.DataFrame): DataFrame containing all movie features, indexed by movieId.
         svd_trainset (surprise.Trainset): The SVD trainset to find movies already rated by the user.
         original_X_columns (pd.Index): The columns from the training data X, in the correct order.
+        min_ratings_threshold (int): Minimum number of ratings a movie must have to be recommended.
     Returns:
         list: A list of dictionaries, where each dictionary contains 'title', 'predicted_rating', and 'movieId'.
     """
@@ -284,6 +287,10 @@ def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_feat
         if movie_id not in rated_movie_raw_ids:
             if movie_id in all_movie_features.index:
                 movie_f = all_movie_features.loc[movie_id]
+
+                # Apply minimum ratings threshold
+                if movie_f.get('movie_num_ratings', 0) < min_ratings_threshold:
+                    continue
 
                 # Combine user and movie features
                 # The order of features must match X_train.columns
@@ -370,14 +377,14 @@ if __name__ == '__main__':
     print(f"\n--- Example: XGBoost Recommendations for User ID {example_user_id_xgb} ---")
     # Ensure X_train.columns is available in this scope if running __main__ directly after defining X_train
     # It should be, as X_train is defined globally in the script flow before __main__
-    xgb_recs = get_xgb_recommendations(example_user_id_xgb, 5, xgb_model, user_features_df, movie_features_df, full_trainset_svd, X_train.columns)
+    xgb_recs = get_xgb_recommendations(example_user_id_xgb, 5, xgb_model, user_features_df, movie_features_df, full_trainset_svd, X_train.columns) # min_ratings_threshold will use default
 
     if xgb_recs:
-        print(f"\nTop 5 recommendations for user {example_user_id_xgb} using XGBoost:")
+        print(f"\nTop 5 recommendations for user {example_user_id_xgb} using XGBoost (filtered by min_ratings_threshold={MIN_RATINGS_THRESHOLD}):")
         for rec in xgb_recs:
             print(f"- {rec['title']} (Predicted XGBoost Rating: {rec['predicted_rating']:.4f}) (MovieID: {rec['movieId']})")
     else:
-        print(f"Could not generate XGBoost recommendations for user {example_user_id_xgb}.")
+        print(f"Could not generate XGBoost recommendations for user {example_user_id_xgb} (possibly due to filtering).")
 
 
     # Placeholder for subsequent steps (XGBoost training, recs, explanations)
@@ -505,15 +512,17 @@ if __name__ == '__main__':
     # Example usage of the new recommendation function
     example_user_id_xgb = '1'
     print(f"\n--- Example: XGBoost Recommendations for User ID {example_user_id_xgb} ---")
-    xgb_recs = get_xgb_recommendations(example_user_id_xgb, 5, xgb_model, user_features_df, movie_features_df, full_trainset_svd, X_train.columns)
+    # Passing the threshold explicitly to show it can be changed, or rely on default
+    xgb_recs = get_xgb_recommendations(example_user_id_xgb, 5, xgb_model, user_features_df, movie_features_df, full_trainset_svd, X_train.columns, min_ratings_threshold=MIN_RATINGS_THRESHOLD)
+
 
     if xgb_recs:
-        print(f"\nTop 5 recommendations for user {example_user_id_xgb} using XGBoost:")
+        print(f"\nTop 5 recommendations for user {example_user_id_xgb} using XGBoost (filtered by min_ratings_threshold={MIN_RATINGS_THRESHOLD}):")
         for rec in xgb_recs:
             print(f"- {rec['title']} (Predicted XGBoost Rating: {rec['predicted_rating']:.4f}) (MovieID: {rec['movieId']})")
 
         # Explain the first recommendation
-        if xgb_recs:
+        if xgb_recs: # Check again, in case filtering resulted in no recs
             first_rec_movie_id_xgb = xgb_recs[0]['movieId']
             first_rec_title_xgb = xgb_recs[0]['title']
             predicted_rating_xgb = xgb_recs[0]['predicted_rating']
@@ -536,10 +545,6 @@ if __name__ == '__main__':
                     print("  Top 5 contributing features (SHAP):")
                     for feature, shap_val in shap_contributions[:5]:
                         print(f"    {feature}: {shap_val:.4f}")
-                    # For a visual plot (requires matplotlib):
-                    # shap.force_plot(shap_expected_value, shap_values_instance, instance_feature_vector_df, matplotlib=True, show=False)
-                    # import matplotlib.pyplot as plt; plt.savefig('shap_force_plot_xgb.png'); plt.close()
-                    # print("    SHAP force plot saved to shap_force_plot_xgb.png (if matplotlib is installed)")
                 else:
                     print("  Could not generate SHAP explanation.")
 
@@ -548,14 +553,14 @@ if __name__ == '__main__':
                 lime_explanation_xgb = explain_xgb_recommendation_with_lime(instance_feature_vector_df, lime_explainer_xgb, lime_predict_fn_xgb, num_lime_features=5)
                 if lime_explanation_xgb:
                     print("  Top 5 contributing features (LIME):")
-                    for feature_name, weight in lime_explanation_xgb.as_list(): # Corrected loop variable
+                    for feature_name, weight in lime_explanation_xgb.as_list():
                         print(f"    {feature_name}: {weight:.4f}")
                 else:
                     print("  Could not generate LIME explanation.")
             else:
                 print("Could not retrieve feature vector for explanation.")
     else:
-        print(f"Could not generate XGBoost recommendations for user {example_user_id_xgb}.")
+        print(f"Could not generate XGBoost recommendations for user {example_user_id_xgb} (possibly due to filtering by min_ratings_threshold={MIN_RATINGS_THRESHOLD}).")
 
 
     print("\n--- End of XGBoost Hybrid Recommendation System Script ---")
@@ -572,11 +577,13 @@ def get_new_user_recommendations(
     historical_user_factors_df, # This is user_factors_df
     original_X_columns,
     title_to_movie_id_map,
-    movie_id_to_title_map
+    movie_id_to_title_map,
+    min_ratings_threshold=MIN_RATINGS_THRESHOLD # Added threshold
     ):
     """
     Generates movie recommendations for a new user based on a small list of liked movies.
     SVD factors for the new user are estimated using the average of historical users.
+    Filters movies by minimum number of ratings.
     """
     print(f"\nGenerating recommendations for a new user who liked: {new_user_ratings_input}")
 
@@ -596,7 +603,7 @@ def get_new_user_recommendations(
         return []
 
     # Calculate new user's explicit features
-    new_user_avg_rating = np.mean(valid_ratings) if valid_ratings else 0.0 # Will be 5.0 if all are 5.0
+    new_user_avg_rating = np.mean(valid_ratings) if valid_ratings else 0.0
     new_user_num_ratings = len(valid_ratings)
 
     print(f"New user profile: Avg Rating={new_user_avg_rating:.2f}, Num Ratings={new_user_num_ratings}")
@@ -609,7 +616,7 @@ def get_new_user_recommendations(
         'user_num_ratings': new_user_num_ratings
     }
     for col, val in avg_user_svd_factors.items():
-        if col in original_X_columns:
+        if col in original_X_columns: # Ensure only relevant SVD factors are added
              new_user_feature_data[col] = val
 
     candidate_movies_predictions = []
@@ -617,17 +624,21 @@ def get_new_user_recommendations(
         if movie_id_candidate not in liked_movie_ids:
             movie_f_candidate = all_movie_features_df.loc[movie_id_candidate]
 
+            # Apply minimum ratings threshold for new user recommendations
+            if movie_f_candidate.get('movie_num_ratings', 0) < min_ratings_threshold:
+                continue
+
             combined_features_for_pred = {}
             for col_template in original_X_columns:
-                if col_template in new_user_feature_data:
+                if col_template in new_user_feature_data: # User-specific features first
                     combined_features_for_pred[col_template] = new_user_feature_data[col_template]
-                elif col_template in movie_f_candidate.index:
+                elif col_template in movie_f_candidate.index: # Then movie features
                     combined_features_for_pred[col_template] = movie_f_candidate[col_template]
-                else:
+                else: # Fallback for any missing columns (should be rare if data is clean)
                     combined_features_for_pred[col_template] = 0
 
             feature_vector_df_pred = pd.DataFrame([combined_features_for_pred], columns=original_X_columns)
-            feature_vector_df_pred = feature_vector_df_pred.fillna(0)
+            feature_vector_df_pred = feature_vector_df_pred.fillna(0) # Ensure no NaNs for prediction
 
             try:
                 predicted_rating = model.predict(feature_vector_df_pred)[0]
@@ -657,31 +668,32 @@ if __name__ == '__main__':
 
     # --- Test new user recommendation ---
     print("\n\n--- Testing New User Recommendation Scenario ---")
-    # Define 5 movies the "new user" has rated 5.0
-    # Ensure these titles exist in your movies.csv for title_to_movie_id_map to work
     new_user_liked_movies = [
         ("Toy Story (1995)", 5.0),
         ("Jumanji (1995)", 5.0),
-        ("Mighty Morphin Power Rangers: The Movie (1995)", 5.0),
-        ("Goofy Movie, A (1995)", 5.0),
-        ("Wizard of Oz, The (1939)", 5.0)
+        ("Mighty Morphin Power Rangers: The Movie (1995)", 5.0), # Less popular, might be filtered
+        ("Goofy Movie, A (1995)", 5.0), # Less popular
+        ("Wizard of Oz, The (1939)", 5.0) # Popular
     ]
 
+    # Using the default MIN_RATINGS_THRESHOLD for new user recs
     new_user_recs = get_new_user_recommendations(
         new_user_ratings_input=new_user_liked_movies,
         n=5,
         model=xgb_model,
-        all_movie_features_df=movie_features_df, # Corrected variable name
-        historical_user_factors_df=user_factors_df, # This is the correct df for SVD user factors
+        all_movie_features_df=movie_features_df,
+        historical_user_factors_df=user_factors_df,
         original_X_columns=X_train.columns,
-        title_to_movie_id_map=title_to_movie_id, # Corrected variable name
-        movie_id_to_title_map=movie_id_to_title # Corrected variable name
+        title_to_movie_id_map=title_to_movie_id,
+        movie_id_to_title_map=movie_id_to_title
+        # min_ratings_threshold will use default from function definition
     )
 
     if new_user_recs:
-        print(f"\nTop 5 recommendations for the new user:")
+        print(f"\nTop 5 recommendations for the new user (filtered by min_ratings_threshold={MIN_RATINGS_THRESHOLD}):")
         for rec in new_user_recs:
             print(f"- {rec['title']} (Predicted XGBoost Rating: {rec['predicted_rating']:.4f}) (MovieID: {rec['movieId']})")
     else:
-        print("Could not generate recommendations for the new user.")
+        print(f"Could not generate recommendations for the new user (possibly due to filtering by min_ratings_threshold={MIN_RATINGS_THRESHOLD}).")
 
+print("\n--- End of Script ---") # Simplified end message
