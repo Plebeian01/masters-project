@@ -247,9 +247,15 @@ print(f"XGBoost Test RMSE: {rmse_test:.4f}")
 # --- Plan Step 5: Implement Recommendation Generation with XGBoost ---
 print("\nStep 5: Implementing Recommendation Generation with XGBoost...")
 
-def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_features, svd_trainset, original_X_columns):
+MIN_RATINGS_THRESHOLD = 10 # Default minimum ratings threshold
+ABS_PRED_RATING_THRESHOLD = 4.0 # Default absolute predicted rating threshold
+
+def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_features, svd_trainset, original_X_columns,
+                            min_ratings_threshold=MIN_RATINGS_THRESHOLD,
+                            abs_pred_rating_threshold=ABS_PRED_RATING_THRESHOLD):
     """
-    Generates movie recommendations for a user using the trained XGBoost model.
+    Generates movie recommendations for a user using the trained XGBoost model,
+    based on uplift and absolute predicted rating.
     Args:
         user_id_str (str): The raw user ID.
         n (int): Number of recommendations to return.
@@ -258,8 +264,10 @@ def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_feat
         all_movie_features (pd.DataFrame): DataFrame containing all movie features, indexed by movieId.
         svd_trainset (surprise.Trainset): The SVD trainset to find movies already rated by the user.
         original_X_columns (pd.Index): The columns from the training data X, in the correct order.
+        min_ratings_threshold (int): Minimum number of ratings a movie must have to be considered.
+        abs_pred_rating_threshold (float): Minimum predicted rating for the user for a movie to be considered.
     Returns:
-        list: A list of dictionaries, where each dictionary contains 'title', 'predicted_rating', and 'movieId'.
+        list: A list of dictionaries, where each dictionary contains 'title', 'predicted_rating', 'uplift', and 'movieId'.
     """
     user_id = int(user_id_str) # Convert to int for lookups if necessary
 
@@ -269,11 +277,10 @@ def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_feat
 
     user_f = user_features.loc[user_id]
 
-    # Get movies already rated by the user from the SVD trainset
     try:
         user_inner_id = svd_trainset.to_inner_uid(user_id)
         rated_movie_raw_ids = {svd_trainset.to_raw_iid(item_inner_id) for item_inner_id, _ in svd_trainset.ur[user_inner_id]}
-    except ValueError: # User not in SVD trainset (e.g. new user not in original ratings)
+    except ValueError:
         print(f"User ID {user_id} not in SVD trainset. Assuming no movies rated for exclusion.")
         rated_movie_raw_ids = set()
 
@@ -285,57 +292,46 @@ def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_feat
             if movie_id in all_movie_features.index:
                 movie_f = all_movie_features.loc[movie_id]
 
-                # Combine user and movie features
-                # The order of features must match X_train.columns
-                # User features first, then movie features as per typical df merge user_df.merge(movie_df)
-                # This depends on how X was constructed.
-                # Our X was: ratings_df.merge(user_features, on='userId').merge(movie_features, on='movieId')
-                # So, user features (excluding SVD factors if they were separate) come first, then movie features.
-                # Let's reconstruct the feature vector carefully based on original_X_columns.
+                if movie_f.get('movie_num_ratings', 0) < min_ratings_threshold:
+                    continue
 
-                # Create a combined series/dict for current user-movie pair
-                # SVD user factors are in user_f, SVD item factors are in movie_f.
-                # Other user stats (user_avg_rating, etc.) are in user_f.
-                # Other movie stats (movie_avg_rating, year, genres) are in movie_f.
-
-                # Start with an empty series with the correct index (original_X_columns)
                 combined_features_data = {}
-
-                # Populate from user_f and movie_f
                 for col in original_X_columns:
                     if col in user_f.index:
                         combined_features_data[col] = user_f[col]
                     elif col in movie_f.index:
                         combined_features_data[col] = movie_f[col]
                     else:
-                        # This case should ideally not happen if feature engineering is consistent
-                        # and all columns in original_X_columns are found in either user_f or movie_f
-                        # print(f"Warning: Column {col} not found in user_f or movie_f. Filling with 0.")
-                        combined_features_data[col] = 0 # Default fill
+                        combined_features_data[col] = 0
 
-                # Convert to DataFrame for prediction
                 feature_vector_df = pd.DataFrame([combined_features_data], columns=original_X_columns)
-                feature_vector_df = feature_vector_df.fillna(0) # Final safety net for NaNs
+                feature_vector_df = feature_vector_df.fillna(0)
 
                 try:
                     predicted_rating = model.predict(feature_vector_df)[0]
-                    candidate_movies.append({'movieId': movie_id, 'predicted_rating': predicted_rating})
+
+                    if predicted_rating >= abs_pred_rating_threshold:
+                        movie_avg_rating = movie_f.get('movie_avg_rating', full_trainset_svd.global_mean) # Use global mean if somehow missing
+                        uplift = predicted_rating - movie_avg_rating
+                        candidate_movies.append({
+                            'movieId': movie_id,
+                            'predicted_rating': predicted_rating,
+                            'uplift': uplift
+                        })
                 except Exception as e:
                     print(f"Error predicting for movie {movie_id}: {e}")
                     print(f"Feature vector causing error:\n{feature_vector_df}")
-                    continue # Skip this movie
-            # else: # Movie not in all_movie_features (should not happen if all_movie_ids_in_features is from its index)
-            #    print(f"MovieId {movie_id} not found in all_movie_features during candidate generation.")
+                    continue
 
-
-    # Sort movies by predicted rating
-    candidate_movies.sort(key=lambda x: x['predicted_rating'], reverse=True)
+    # Sort movies by uplift
+    candidate_movies.sort(key=lambda x: x['uplift'], reverse=True)
 
     top_n_recommendations = []
     for rec in candidate_movies[:n]:
         top_n_recommendations.append({
             'title': movie_id_to_title.get(rec['movieId'], "Unknown Movie"),
             'predicted_rating': rec['predicted_rating'],
+            'uplift': rec['uplift'],
             'movieId': rec['movieId']
         })
 
@@ -346,8 +342,6 @@ print("XGBoost recommendation function `get_xgb_recommendations` defined.")
 
 # Sections for old SVD recommendation (get_recommendations_for_user) and
 # old LIME/SHAP for SVD are intentionally removed here.
-# They will be replaced by XGBoost specific functions later in the plan.
-
 
 if __name__ == '__main__':
     print("\n--- Hybrid Movie Recommendation System (SVD + XGBoost) ---")
@@ -358,46 +352,42 @@ if __name__ == '__main__':
     print(f"   XGBoost Test RMSE: {rmse_test:.4f}")
     print("Step 5: XGBoost Recommendation Generation function defined.")
 
-    # Example: Print number of users and items from SVD model perspective
     print(f"\nNumber of users in SVD trainset: {full_trainset_svd.n_users}")
     print(f"Number of items (movies) in SVD trainset: {full_trainset_svd.n_items}")
     print(f"Shape of user_features_df: {user_features_df.shape}")
     print(f"Shape of movie_features_df: {movie_features_df.shape}")
     print(f"Shape of X_train for XGBoost: {X_train.shape}")
 
-    # Example usage of the new recommendation function
     example_user_id_xgb = '1'
-    print(f"\n--- Example: XGBoost Recommendations for User ID {example_user_id_xgb} ---")
-    # Ensure X_train.columns is available in this scope if running __main__ directly after defining X_train
-    # It should be, as X_train is defined globally in the script flow before __main__
-    xgb_recs = get_xgb_recommendations(example_user_id_xgb, 5, xgb_model, user_features_df, movie_features_df, full_trainset_svd, X_train.columns)
+    print(f"\n--- Example: XGBoost Recommendations for User ID {example_user_id_xgb} (Uplift-based) ---")
+
+    xgb_recs = get_xgb_recommendations(
+        example_user_id_xgb,
+        5,
+        xgb_model,
+        user_features_df,
+        movie_features_df,
+        full_trainset_svd,
+        X_train.columns
+        # min_ratings_threshold and abs_pred_rating_threshold will use defaults
+    )
 
     if xgb_recs:
-        print(f"\nTop 5 recommendations for user {example_user_id_xgb} using XGBoost:")
+        print(f"\nTop 5 recommendations for user {example_user_id_xgb} based on Uplift (min_ratings={MIN_RATINGS_THRESHOLD}, abs_pred_rating>={ABS_PRED_RATING_THRESHOLD}):")
         for rec in xgb_recs:
-            print(f"- {rec['title']} (Predicted XGBoost Rating: {rec['predicted_rating']:.4f}) (MovieID: {rec['movieId']})")
+            print(f"- {rec['title']} (Predicted Rating: {rec['predicted_rating']:.4f}, Uplift: {rec['uplift']:.4f}) (MovieID: {rec['movieId']})")
     else:
-        print(f"Could not generate XGBoost recommendations for user {example_user_id_xgb}.")
+        print(f"Could not generate XGBoost recommendations for user {example_user_id_xgb} (possibly due to filtering).")
 
-
-    # Placeholder for subsequent steps (XGBoost training, recs, explanations)
     print("\nNext steps will involve: Explanation for XGBoost (SHAP, LIME)...")
 
 
 # --- Plan Step 6: Implement Explainability for XGBoost (SHAP & LIME) ---
 print("\nStep 6: Implementing Explainability for XGBoost...")
 
-# SHAP Explainer
-# For tree models like XGBoost, TreeExplainer is efficient.
-# It needs the model and optionally the training data for background distribution (can improve consistency).
-# Using X_train for background data is a good practice.
-shap_explainer_xgb = shap.TreeExplainer(xgb_model, data=X_train) # Pass X_train as background
+shap_explainer_xgb = shap.TreeExplainer(xgb_model, data=X_train)
 
 def get_feature_vector_for_explanation(user_id_str, movie_id_for_explanation, user_features_df, movie_features_df, original_X_columns):
-    """
-    Helper function to construct the exact feature vector for a given user-movie pair,
-    matching the structure of X_train.
-    """
     user_id = int(user_id_str)
     if user_id not in user_features_df.index or movie_id_for_explanation not in movie_features_df.index:
         print("User or Movie ID not found in feature dataframes for explanation.")
@@ -407,44 +397,27 @@ def get_feature_vector_for_explanation(user_id_str, movie_id_for_explanation, us
     movie_f = movie_features_df.loc[movie_id_for_explanation]
 
     combined_features_data = {}
-    for col in original_X_columns: # original_X_columns is X_train.columns
+    for col in original_X_columns:
         if col in user_f.index:
             combined_features_data[col] = user_f[col]
         elif col in movie_f.index:
             combined_features_data[col] = movie_f[col]
         else:
-            combined_features_data[col] = 0 # Should match filling strategy for X_train
+            combined_features_data[col] = 0
 
     feature_vector_df = pd.DataFrame([combined_features_data], columns=original_X_columns)
-    feature_vector_df = feature_vector_df.fillna(0) # Ensure consistency
+    feature_vector_df = feature_vector_df.fillna(0)
     return feature_vector_df
 
 
 def explain_xgb_recommendation_with_shap(feature_vector_df_shap, shap_explainer_to_use):
-    """
-    Explains an XGBoost recommendation using SHAP.
-    Args:
-        feature_vector_df_shap (pd.DataFrame): Single row DataFrame of the instance to explain.
-        shap_explainer_to_use (shap.TreeExplainer): The SHAP TreeExplainer initialized with the model.
-    Returns:
-        tuple: (shap_values, expected_value) for the instance.
-               shap_values is an array of SHAP values for each feature.
-    """
     if feature_vector_df_shap is None or feature_vector_df_shap.empty:
         return None, None
-
-    # SHAP values for a single instance
     shap_values_instance = shap_explainer_to_use.shap_values(feature_vector_df_shap)
-    # For single output regression, shap_values_instance is a 1D array for the first (and only) instance.
-    # If feature_vector_df_shap has one row, shap_values_instance[0] gives feature importances for that row.
-
     return shap_values_instance[0], shap_explainer_to_use.expected_value
 
-
-# LIME Explainer
-# LIME needs training data to understand feature distributions.
 lime_explainer_xgb = lime.lime_tabular.LimeTabularExplainer(
-    training_data=X_train.values, # Pass numpy array
+    training_data=X_train.values,
     feature_names=X_train.columns.tolist(),
     class_names=['predicted_rating'],
     mode='regression',
@@ -452,29 +425,12 @@ lime_explainer_xgb = lime.lime_tabular.LimeTabularExplainer(
 )
 
 def lime_predict_fn_xgb(data_for_lime):
-    """
-    Prediction function for LIME, compatible with XGBoost.
-    LIME passes a NumPy array, so convert it to DataFrame with correct column names.
-    """
     return xgb_model.predict(pd.DataFrame(data_for_lime, columns=X_train.columns))
 
 def explain_xgb_recommendation_with_lime(feature_vector_df_lime, lime_explainer_to_use, predict_fn_for_lime, num_lime_features=10):
-    """
-    Explains an XGBoost recommendation using LIME.
-    Args:
-        feature_vector_df_lime (pd.DataFrame): Single row DataFrame of the instance to explain.
-        lime_explainer_to_use (lime.lime_tabular.LimeTabularExplainer): The LIME explainer.
-        predict_fn_for_lime (callable): The prediction function for LIME.
-        num_lime_features (int): Number of features to show in LIME explanation.
-    Returns:
-        lime.explanation.Explanation: The LIME explanation object.
-    """
     if feature_vector_df_lime is None or feature_vector_df_lime.empty:
         return None
-
-    # LIME expects a 1D numpy array for the instance to explain
     instance_to_explain_lime = feature_vector_df_lime.iloc[0].values
-
     explanation = lime_explainer_to_use.explain_instance(
         data_row=instance_to_explain_lime,
         predict_fn=predict_fn_for_lime,
@@ -486,101 +442,73 @@ print("SHAP and LIME explanation functions for XGBoost defined.")
 
 
 if __name__ == '__main__':
-    print("\n--- Hybrid Movie Recommendation System (SVD + XGBoost) ---")
-    print("Step 1: SVD Feature Generation complete.")
-    print("Step 2: Extended Feature Engineering complete.")
-    print("Step 3: XGBoost Training Set construction complete.")
-    print("Step 4: XGBoost Regressor training complete.")
-    print(f"   XGBoost Test RMSE: {rmse_test:.4f}")
-    print("Step 5: XGBoost Recommendation Generation function defined.")
-    print("Step 6: SHAP and LIME explanation functions for XGBoost defined.")
+    # This block will re-run with the updated get_xgb_recommendations if the script is executed.
+    # The previous print statements for __main__ are sufficient.
+    # For SHAP/LIME, we'd typically explain one of the new uplift-based recommendations.
 
-    # Example: Print number of users and items from SVD model perspective
-    print(f"\nNumber of users in SVD trainset: {full_trainset_svd.n_users}")
-    print(f"Number of items (movies) in SVD trainset: {full_trainset_svd.n_items}")
-    print(f"Shape of user_features_df: {user_features_df.shape}")
-    print(f"Shape of movie_features_df: {movie_features_df.shape}")
-    print(f"Shape of X_train for XGBoost: {X_train.shape}")
+    if xgb_recs: # If recommendations were generated
+        first_rec_movie_id_xgb = xgb_recs[0]['movieId']
+        first_rec_title_xgb = xgb_recs[0]['title']
+        predicted_rating_xgb = xgb_recs[0]['predicted_rating']
+        uplift_xgb = xgb_recs[0]['uplift']
 
-    # Example usage of the new recommendation function
-    example_user_id_xgb = '1'
-    print(f"\n--- Example: XGBoost Recommendations for User ID {example_user_id_xgb} ---")
-    xgb_recs = get_xgb_recommendations(example_user_id_xgb, 5, xgb_model, user_features_df, movie_features_df, full_trainset_svd, X_train.columns)
+        print(f"\n--- Explaining recommendation for '{first_rec_title_xgb}' (Pred Rating: {predicted_rating_xgb:.4f}, Uplift: {uplift_xgb:.4f}) to User {example_user_id_xgb} ---")
 
-    if xgb_recs:
-        print(f"\nTop 5 recommendations for user {example_user_id_xgb} using XGBoost:")
-        for rec in xgb_recs:
-            print(f"- {rec['title']} (Predicted XGBoost Rating: {rec['predicted_rating']:.4f}) (MovieID: {rec['movieId']})")
+        instance_feature_vector_df = get_feature_vector_for_explanation(example_user_id_xgb, first_rec_movie_id_xgb, user_features_df, movie_features_df, X_train.columns)
 
-        # Explain the first recommendation
-        if xgb_recs:
-            first_rec_movie_id_xgb = xgb_recs[0]['movieId']
-            first_rec_title_xgb = xgb_recs[0]['title']
-            predicted_rating_xgb = xgb_recs[0]['predicted_rating']
+        if instance_feature_vector_df is not None:
+            print("\nSHAP Explanation:")
+            shap_values_instance, shap_expected_value = explain_xgb_recommendation_with_shap(instance_feature_vector_df, shap_explainer_xgb)
+            if shap_values_instance is not None:
+                print(f"  Base value (expected XGBoost output): {shap_expected_value:.4f}")
+                print(f"  Current prediction: {predicted_rating_xgb:.4f} (SHAP sum: {shap_expected_value + np.sum(shap_values_instance):.4f})")
 
-            print(f"\n--- Explaining recommendation for '{first_rec_title_xgb}' (Rating: {predicted_rating_xgb:.4f}) to User {example_user_id_xgb} ---")
-
-            # Get the feature vector for this specific recommendation
-            instance_feature_vector_df = get_feature_vector_for_explanation(example_user_id_xgb, first_rec_movie_id_xgb, user_features_df, movie_features_df, X_train.columns)
-
-            if instance_feature_vector_df is not None:
-                # SHAP Explanation
-                print("\nSHAP Explanation:")
-                shap_values_instance, shap_expected_value = explain_xgb_recommendation_with_shap(instance_feature_vector_df, shap_explainer_xgb)
-                if shap_values_instance is not None:
-                    print(f"  Base value (expected XGBoost output): {shap_expected_value:.4f}")
-                    print(f"  Current prediction: {predicted_rating_xgb:.4f} (SHAP sum: {shap_expected_value + np.sum(shap_values_instance):.4f})") # Verify sum
-
-                    feature_names_for_shap = X_train.columns.tolist()
-                    shap_contributions = sorted(list(zip(feature_names_for_shap, shap_values_instance)), key=lambda x: abs(x[1]), reverse=True)
-                    print("  Top 5 contributing features (SHAP):")
-                    for feature, shap_val in shap_contributions[:5]:
-                        print(f"    {feature}: {shap_val:.4f}")
-                    # For a visual plot (requires matplotlib):
-                    # shap.force_plot(shap_expected_value, shap_values_instance, instance_feature_vector_df, matplotlib=True, show=False)
-                    # import matplotlib.pyplot as plt; plt.savefig('shap_force_plot_xgb.png'); plt.close()
-                    # print("    SHAP force plot saved to shap_force_plot_xgb.png (if matplotlib is installed)")
-                else:
-                    print("  Could not generate SHAP explanation.")
-
-                # LIME Explanation
-                print("\nLIME Explanation:")
-                lime_explanation_xgb = explain_xgb_recommendation_with_lime(instance_feature_vector_df, lime_explainer_xgb, lime_predict_fn_xgb, num_lime_features=5)
-                if lime_explanation_xgb:
-                    print("  Top 5 contributing features (LIME):")
-                    for feature_name, weight in lime_explanation_xgb.as_list(): # Corrected loop variable
-                        print(f"    {feature_name}: {weight:.4f}")
-                else:
-                    print("  Could not generate LIME explanation.")
+                feature_names_for_shap = X_train.columns.tolist()
+                shap_contributions = sorted(list(zip(feature_names_for_shap, shap_values_instance)), key=lambda x: abs(x[1]), reverse=True)
+                print("  Top 5 contributing features (SHAP):")
+                for feature, shap_val in shap_contributions[:5]:
+                    print(f"    {feature}: {shap_val:.4f}")
             else:
-                print("Could not retrieve feature vector for explanation.")
-    else:
-        print(f"Could not generate XGBoost recommendations for user {example_user_id_xgb}.")
+                print("  Could not generate SHAP explanation.")
+
+            print("\nLIME Explanation:")
+            lime_explanation_xgb = explain_xgb_recommendation_with_lime(instance_feature_vector_df, lime_explainer_xgb, lime_predict_fn_xgb, num_lime_features=5)
+            if lime_explanation_xgb:
+                print("  Top 5 contributing features (LIME):")
+                for feature_name, weight in lime_explanation_xgb.as_list():
+                    print(f"    {feature_name}: {weight:.4f}")
+            else:
+                print("  Could not generate LIME explanation.")
+        else:
+            print("Could not retrieve feature vector for explanation.")
 
 
     print("\n--- End of XGBoost Hybrid Recommendation System Script ---")
 
 
 # --- Plan Step 1 & 2 (New Plan for New User): Define and Integrate `get_new_user_recommendations` Function ---
-# print("\nStep 7: Defining function for new user recommendations...") # Already part of the function log
+print("Function `get_new_user_recommendations` defined (Step 7).") # Placeholder, will be updated in next step
 
 def get_new_user_recommendations(
-    new_user_ratings_input, # List of tuples: [('Movie Title 1', 5.0), ...]
+    new_user_ratings_input,
     n,
     model,
     all_movie_features_df,
-    historical_user_factors_df, # This is user_factors_df
+    historical_user_factors_df,
     original_X_columns,
     title_to_movie_id_map,
-    movie_id_to_title_map
+    movie_id_to_title_map,
+    min_ratings_threshold=MIN_RATINGS_THRESHOLD, # From previous changes
+    abs_pred_rating_threshold=ABS_PRED_RATING_THRESHOLD # New threshold
     ):
     """
     Generates movie recommendations for a new user based on a small list of liked movies.
     SVD factors for the new user are estimated using the average of historical users.
+    Filters movies by minimum number of ratings and absolute predicted rating.
+    Sorts by uplift.
     """
     print(f"\nGenerating recommendations for a new user who liked: {new_user_ratings_input}")
 
-    # Convert input movie titles to movieIds and collect ratings
     liked_movie_ids = set()
     valid_ratings = []
     for title, rating in new_user_ratings_input:
@@ -595,13 +523,11 @@ def get_new_user_recommendations(
         print("No valid liked movies found for the new user. Cannot generate recommendations.")
         return []
 
-    # Calculate new user's explicit features
-    new_user_avg_rating = np.mean(valid_ratings) if valid_ratings else 0.0 # Will be 5.0 if all are 5.0
+    new_user_avg_rating = np.mean(valid_ratings) if valid_ratings else 0.0
     new_user_num_ratings = len(valid_ratings)
 
     print(f"New user profile: Avg Rating={new_user_avg_rating:.2f}, Num Ratings={new_user_num_ratings}")
 
-    # Calculate new user's SVD factors (average of historical users)
     avg_user_svd_factors = historical_user_factors_df[[col for col in historical_user_factors_df.columns if col.startswith('uf_svd_')]].mean()
 
     new_user_feature_data = {
@@ -617,6 +543,9 @@ def get_new_user_recommendations(
         if movie_id_candidate not in liked_movie_ids:
             movie_f_candidate = all_movie_features_df.loc[movie_id_candidate]
 
+            if movie_f_candidate.get('movie_num_ratings', 0) < min_ratings_threshold:
+                continue
+
             combined_features_for_pred = {}
             for col_template in original_X_columns:
                 if col_template in new_user_feature_data:
@@ -631,34 +560,36 @@ def get_new_user_recommendations(
 
             try:
                 predicted_rating = model.predict(feature_vector_df_pred)[0]
-                candidate_movies_predictions.append({'movieId': movie_id_candidate, 'predicted_rating': predicted_rating})
+
+                if predicted_rating >= abs_pred_rating_threshold:
+                    movie_avg_rating = movie_f_candidate.get('movie_avg_rating', full_trainset_svd.global_mean)
+                    uplift = predicted_rating - movie_avg_rating
+                    candidate_movies_predictions.append({
+                        'movieId': movie_id_candidate,
+                        'predicted_rating': predicted_rating,
+                        'uplift': uplift
+                        })
             except Exception as e:
                 print(f"Error predicting for movie {movie_id_candidate} for new user: {e}")
                 continue
 
-    candidate_movies_predictions.sort(key=lambda x: x['predicted_rating'], reverse=True)
+    candidate_movies_predictions.sort(key=lambda x: x['uplift'], reverse=True)
 
     top_n_recommendations = []
     for rec in candidate_movies_predictions[:n]:
         top_n_recommendations.append({
             'title': movie_id_to_title_map.get(rec['movieId'], "Unknown Movie"),
             'predicted_rating': rec['predicted_rating'],
+            'uplift': rec['uplift'],
             'movieId': rec['movieId']
         })
 
     return top_n_recommendations
 
-# Moved the print statement here to reflect it's part of the script execution flow now.
-print("Function `get_new_user_recommendations` defined (Step 7).")
-
 
 if __name__ == '__main__':
-    # ... (previous __main__ content remains unchanged up to historical user explanations)
-
-    # --- Test new user recommendation ---
-    print("\n\n--- Testing New User Recommendation Scenario ---")
-    # Define 5 movies the "new user" has rated 5.0
-    # Ensure these titles exist in your movies.csv for title_to_movie_id_map to work
+    # --- Test new user recommendation (Uplift-based) ---
+    print("\n\n--- Testing New User Recommendation Scenario (Uplift-based) ---")
     new_user_liked_movies = [
         ("Toy Story (1995)", 5.0),
         ("Jumanji (1995)", 5.0),
@@ -671,17 +602,18 @@ if __name__ == '__main__':
         new_user_ratings_input=new_user_liked_movies,
         n=5,
         model=xgb_model,
-        all_movie_features_df=movie_features_df, # Corrected variable name
-        historical_user_factors_df=user_factors_df, # This is the correct df for SVD user factors
+        all_movie_features_df=movie_features_df,
+        historical_user_factors_df=user_factors_df,
         original_X_columns=X_train.columns,
-        title_to_movie_id_map=title_to_movie_id, # Corrected variable name
-        movie_id_to_title_map=movie_id_to_title # Corrected variable name
+        title_to_movie_id_map=title_to_movie_id,
+        movie_id_to_title_map=movie_id_to_title
     )
 
     if new_user_recs:
-        print(f"\nTop 5 recommendations for the new user:")
+        print(f"\nTop 5 recommendations for the new user based on Uplift (min_ratings={MIN_RATINGS_THRESHOLD}, abs_pred_rating>={ABS_PRED_RATING_THRESHOLD}):")
         for rec in new_user_recs:
-            print(f"- {rec['title']} (Predicted XGBoost Rating: {rec['predicted_rating']:.4f}) (MovieID: {rec['movieId']})")
+            print(f"- {rec['title']} (Predicted Rating: {rec['predicted_rating']:.4f}, Uplift: {rec['uplift']:.4f}) (MovieID: {rec['movieId']})")
     else:
-        print("Could not generate recommendations for the new user.")
+        print(f"Could not generate recommendations for the new user (possibly due to filtering).")
 
+print("\n--- End of Script ---")
