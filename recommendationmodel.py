@@ -16,6 +16,8 @@ import lime.lime_tabular
 import xgboost as xgb # Added XGBoost
 from sklearn.model_selection import train_test_split as sklearn_train_test_split # For XGBoost
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics.pairwise import cosine_similarity
+
 
 # --- 0. Initial Data Loading (from original plan) ---
 print("Step 0: Loading and Basic Preprocessing Data...")
@@ -250,8 +252,8 @@ print("\nStep 5: Implementing Recommendation Generation with XGBoost...")
 MIN_RATINGS_THRESHOLD = 10 # Default minimum ratings threshold
 ABS_PRED_RATING_THRESHOLD = 4.0 # Default absolute predicted rating threshold
 
-def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_features, svd_trainset, original_X_columns,
-                            min_ratings_threshold=MIN_RATINGS_THRESHOLD,
+def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_features, svd_trainset, original_X_columns, 
+                            min_ratings_threshold=MIN_RATINGS_THRESHOLD, 
                             abs_pred_rating_threshold=ABS_PRED_RATING_THRESHOLD):
     """
     Generates movie recommendations for a user using the trained XGBoost model,
@@ -302,19 +304,19 @@ def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_feat
                     elif col in movie_f.index:
                         combined_features_data[col] = movie_f[col]
                     else:
-                        combined_features_data[col] = 0
+                        combined_features_data[col] = 0 
 
                 feature_vector_df = pd.DataFrame([combined_features_data], columns=original_X_columns)
                 feature_vector_df = feature_vector_df.fillna(0)
 
                 try:
                     predicted_rating = model.predict(feature_vector_df)[0]
-
+                    
                     if predicted_rating >= abs_pred_rating_threshold:
                         movie_avg_rating = movie_f.get('movie_avg_rating', full_trainset_svd.global_mean) # Use global mean if somehow missing
                         uplift = predicted_rating - movie_avg_rating
                         candidate_movies.append({
-                            'movieId': movie_id,
+                            'movieId': movie_id, 
                             'predicted_rating': predicted_rating,
                             'uplift': uplift
                         })
@@ -360,14 +362,14 @@ if __name__ == '__main__':
 
     example_user_id_xgb = '1'
     print(f"\n--- Example: XGBoost Recommendations for User ID {example_user_id_xgb} (Uplift-based) ---")
-
+    
     xgb_recs = get_xgb_recommendations(
-        example_user_id_xgb,
-        5,
-        xgb_model,
-        user_features_df,
-        movie_features_df,
-        full_trainset_svd,
+        example_user_id_xgb, 
+        5, 
+        xgb_model, 
+        user_features_df, 
+        movie_features_df, 
+        full_trainset_svd, 
         X_train.columns
         # min_ratings_threshold and abs_pred_rating_threshold will use defaults
     )
@@ -385,7 +387,7 @@ if __name__ == '__main__':
 # --- Plan Step 6: Implement Explainability for XGBoost (SHAP & LIME) ---
 print("\nStep 6: Implementing Explainability for XGBoost...")
 
-shap_explainer_xgb = shap.TreeExplainer(xgb_model, data=X_train)
+shap_explainer_xgb = shap.TreeExplainer(xgb_model, data=X_train) 
 
 def get_feature_vector_for_explanation(user_id_str, movie_id_for_explanation, user_features_df, movie_features_df, original_X_columns):
     user_id = int(user_id_str)
@@ -397,16 +399,16 @@ def get_feature_vector_for_explanation(user_id_str, movie_id_for_explanation, us
     movie_f = movie_features_df.loc[movie_id_for_explanation]
 
     combined_features_data = {}
-    for col in original_X_columns:
+    for col in original_X_columns: 
         if col in user_f.index:
             combined_features_data[col] = user_f[col]
         elif col in movie_f.index:
             combined_features_data[col] = movie_f[col]
         else:
-            combined_features_data[col] = 0
+            combined_features_data[col] = 0 
 
     feature_vector_df = pd.DataFrame([combined_features_data], columns=original_X_columns)
-    feature_vector_df = feature_vector_df.fillna(0)
+    feature_vector_df = feature_vector_df.fillna(0) 
     return feature_vector_df
 
 
@@ -417,7 +419,7 @@ def explain_xgb_recommendation_with_shap(feature_vector_df_shap, shap_explainer_
     return shap_values_instance[0], shap_explainer_to_use.expected_value
 
 lime_explainer_xgb = lime.lime_tabular.LimeTabularExplainer(
-    training_data=X_train.values,
+    training_data=X_train.values, 
     feature_names=X_train.columns.tolist(),
     class_names=['predicted_rating'],
     mode='regression',
@@ -475,7 +477,7 @@ if __name__ == '__main__':
             lime_explanation_xgb = explain_xgb_recommendation_with_lime(instance_feature_vector_df, lime_explainer_xgb, lime_predict_fn_xgb, num_lime_features=5)
             if lime_explanation_xgb:
                 print("  Top 5 contributing features (LIME):")
-                for feature_name, weight in lime_explanation_xgb.as_list():
+                for feature_name, weight in lime_explanation_xgb.as_list(): 
                     print(f"    {feature_name}: {weight:.4f}")
             else:
                 print("  Could not generate LIME explanation.")
@@ -490,25 +492,28 @@ if __name__ == '__main__':
 print("Function `get_new_user_recommendations` defined (Step 7).") # Placeholder, will be updated in next step
 
 def get_new_user_recommendations(
-    new_user_ratings_input,
+    new_user_ratings_input, 
     n,
     model,
     all_movie_features_df,
-    historical_user_factors_df,
+    historical_user_factors_df, 
     original_X_columns,
     title_to_movie_id_map,
     movie_id_to_title_map,
-    min_ratings_threshold=MIN_RATINGS_THRESHOLD, # From previous changes
-    abs_pred_rating_threshold=ABS_PRED_RATING_THRESHOLD # New threshold
-    ):
+    ratings_df,
+    genre_columns,
+    min_ratings_threshold=10,
+    abs_pred_rating_threshold=4.0,
+    min_similar_rating=4.0,
+    min_similar_users=5,
+    genre_similarity_threshold=0.1
+):
     """
-    Generates movie recommendations for a new user based on a small list of liked movies.
-    SVD factors for the new user are estimated using the average of historical users.
-    Filters movies by minimum number of ratings and absolute predicted rating.
-    Sorts by uplift.
+    Hybrid recommendation function for new users using similar users' SVD + genre profile similarity.
     """
     print(f"\nGenerating recommendations for a new user who liked: {new_user_ratings_input}")
 
+    # --- Step 1: Convert movie titles to IDs ---
     liked_movie_ids = set()
     valid_ratings = []
     for title, rating in new_user_ratings_input:
@@ -517,74 +522,108 @@ def get_new_user_recommendations(
             liked_movie_ids.add(movie_id)
             valid_ratings.append(rating)
         else:
-            print(f"Warning: Movie title '{title}' not found in dataset. Skipping for new user profile.")
+            print(f"Warning: '{title}' not found in dataset. Skipping.")
 
     if not liked_movie_ids:
-        print("No valid liked movies found for the new user. Cannot generate recommendations.")
+        print("No valid liked movies found. Aborting.")
         return []
 
-    new_user_avg_rating = np.mean(valid_ratings) if valid_ratings else 0.0
+    new_user_avg_rating = np.mean(valid_ratings) if valid_ratings else 0.0 
     new_user_num_ratings = len(valid_ratings)
 
-    print(f"New user profile: Avg Rating={new_user_avg_rating:.2f}, Num Ratings={new_user_num_ratings}")
+    # --- Step 2: Estimate SVD latent factors using similar users ---
+    def find_similar_users(liked_movie_ids, ratings_df, min_rating=4.0):
+        users = set()
+        for movie_id in liked_movie_ids:
+            matched = ratings_df[(ratings_df['movieId'] == movie_id) & (ratings_df['rating'] >= min_rating)]
+            users.update(matched['userId'].tolist())
+        return list(users)
 
-    avg_user_svd_factors = historical_user_factors_df[[col for col in historical_user_factors_df.columns if col.startswith('uf_svd_')]].mean()
+    similar_users = find_similar_users(liked_movie_ids, ratings_df, min_rating=min_similar_rating)
+    if len(similar_users) < min_similar_users:
+        print(f"Only {len(similar_users)} similar users found. Using global SVD mean.")
+        estimated_user_factors = historical_user_factors_df.mean()
+    else:
+        valid_similar_users_df = historical_user_factors_df.loc[historical_user_factors_df.index.intersection(similar_users)]
+        estimated_user_factors = valid_similar_users_df.mean()
+        print(f"Estimated user profile from {len(valid_similar_users_df)} similar users.")
 
+    # --- Step 3: Compute genre profile of liked movies ---
+    def compute_genre_profile(liked_movie_ids, movie_features_df, genre_columns):
+        liked_df = movie_features_df.loc[movie_features_df.index.intersection(liked_movie_ids)]
+        return liked_df[genre_columns].mean().values.reshape(1, -1)
+
+    user_genre_vector = compute_genre_profile(liked_movie_ids, all_movie_features_df, genre_columns)
+
+    # --- Step 4: Assemble user feature vector ---
     new_user_feature_data = {
         'user_avg_rating': new_user_avg_rating,
         'user_num_ratings': new_user_num_ratings
     }
-    for col, val in avg_user_svd_factors.items():
+    for col, val in estimated_user_factors.items():
         if col in original_X_columns:
-             new_user_feature_data[col] = val
+            new_user_feature_data[col] = val
 
+    # --- Step 5: Score all candidate movies ---
     candidate_movies_predictions = []
     for movie_id_candidate in all_movie_features_df.index:
         if movie_id_candidate not in liked_movie_ids:
-            movie_f_candidate = all_movie_features_df.loc[movie_id_candidate]
-
-            if movie_f_candidate.get('movie_num_ratings', 0) < min_ratings_threshold:
+            movie_f = all_movie_features_df.loc[movie_id_candidate]
+            if movie_f.get('movie_num_ratings', 0) < min_ratings_threshold:
                 continue
 
-            combined_features_for_pred = {}
-            for col_template in original_X_columns:
-                if col_template in new_user_feature_data:
-                    combined_features_for_pred[col_template] = new_user_feature_data[col_template]
-                elif col_template in movie_f_candidate.index:
-                    combined_features_for_pred[col_template] = movie_f_candidate[col_template]
-                else:
-                    combined_features_for_pred[col_template] = 0
+            # Cosine similarity of genres
+            movie_genre_vector = movie_f[genre_columns].values.reshape(1, -1)
+            genre_similarity = cosine_similarity(user_genre_vector, movie_genre_vector)[0][0]
 
-            feature_vector_df_pred = pd.DataFrame([combined_features_for_pred], columns=original_X_columns)
-            feature_vector_df_pred = feature_vector_df_pred.fillna(0)
+            if genre_similarity < genre_similarity_threshold:
+                continue  # Skip weak matches
+
+            combined_features = {}
+            for col in original_X_columns:
+                if col in new_user_feature_data:
+                    combined_features[col] = new_user_feature_data[col]
+                elif col in movie_f.index:
+                    combined_features[col] = movie_f[col]
+                else:
+                    combined_features[col] = 0
+
+            feature_vector_df = pd.DataFrame([combined_features], columns=original_X_columns).fillna(0)
 
             try:
-                predicted_rating = model.predict(feature_vector_df_pred)[0]
-
+                predicted_rating = model.predict(feature_vector_df)[0]
                 if predicted_rating >= abs_pred_rating_threshold:
-                    movie_avg_rating = movie_f_candidate.get('movie_avg_rating', full_trainset_svd.global_mean)
+                    movie_avg_rating = movie_f.get('movie_avg_rating', 3.5)
                     uplift = predicted_rating - movie_avg_rating
+                    adjusted_uplift = uplift * genre_similarity
+
                     candidate_movies_predictions.append({
                         'movieId': movie_id_candidate,
                         'predicted_rating': predicted_rating,
-                        'uplift': uplift
-                        })
+                        'uplift': uplift,
+                        'adjusted_uplift': adjusted_uplift,
+                        'genre_similarity': genre_similarity
+                    })
             except Exception as e:
-                print(f"Error predicting for movie {movie_id_candidate} for new user: {e}")
+                print(f"Error for movie {movie_id_candidate}: {e}")
                 continue
 
-    candidate_movies_predictions.sort(key=lambda x: x['uplift'], reverse=True)
+    # --- Step 6: Return Top-N Recommendations ---
+    candidate_movies_predictions.sort(key=lambda x: x['adjusted_uplift'], reverse=True)
 
-    top_n_recommendations = []
-    for rec in candidate_movies_predictions[:n]:
-        top_n_recommendations.append({
+    top_n = [
+        {
             'title': movie_id_to_title_map.get(rec['movieId'], "Unknown Movie"),
             'predicted_rating': rec['predicted_rating'],
             'uplift': rec['uplift'],
+            'genre_similarity': rec['genre_similarity'],
+            'adjusted_uplift': rec['adjusted_uplift'],
             'movieId': rec['movieId']
-        })
+        }
+        for rec in candidate_movies_predictions[:n]
+    ]
 
-    return top_n_recommendations
+    return top_n
 
 
 if __name__ == '__main__':
@@ -593,8 +632,8 @@ if __name__ == '__main__':
     new_user_liked_movies = [
         ("Toy Story (1995)", 5.0),
         ("Jumanji (1995)", 5.0),
-        ("Mighty Morphin Power Rangers: The Movie (1995)", 5.0),
-        ("Goofy Movie, A (1995)", 5.0),
+        ("Mighty Morphin Power Rangers: The Movie (1995)", 5.0), 
+        ("Goofy Movie, A (1995)", 5.0), 
         ("Wizard of Oz, The (1939)", 5.0)
     ]
 
@@ -606,8 +645,10 @@ if __name__ == '__main__':
         historical_user_factors_df=user_factors_df,
         original_X_columns=X_train.columns,
         title_to_movie_id_map=title_to_movie_id,
-        movie_id_to_title_map=movie_id_to_title
-    )
+        movie_id_to_title_map=movie_id_to_title,
+        ratings_df=ratings_df,
+        genre_columns=one_hot_genre_columns  
+)
 
     if new_user_recs:
         print(f"\nTop 5 recommendations for the new user based on Uplift (min_ratings={MIN_RATINGS_THRESHOLD}, abs_pred_rating>={ABS_PRED_RATING_THRESHOLD}):")
