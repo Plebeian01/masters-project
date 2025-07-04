@@ -55,7 +55,7 @@ movies_df['num_genres'] = movies_df['genres'].apply(lambda x: len(x.split('|')) 
 movies_df['year'] = movies_df['title'].str.extract(r'\((\d{4})\)')
 movies_df['year'] = pd.to_numeric(movies_df['year'], errors='coerce')
 median_year = movies_df['year'].median() # Calculate median before NaNs from non-extractable titles
-movies_df['year'].fillna(median_year, inplace=True) # Fill NaNs for year
+movies_df['year'] = movies_df['year'].fillna(median_year) # Fill NaNs for year
 
 movies_df['is_old_movie'] = (movies_df['year'] < 1990).astype(int)
 movies_df['is_recent_movie'] = (movies_df['year'] > 2015).astype(int)
@@ -123,7 +123,7 @@ for inner_uid in full_trainset_svd.all_users():
     factors = svd_model.pu[inner_uid]
     user_factors_list.append([raw_uid] + factors.tolist())
 user_factors_df = pd.DataFrame(user_factors_list, columns=['userId'] + [f'uf_svd_{i}' for i in range(N_FACTORS_SVD)])
-user_factors_df.set_index('userId', inplace=True)
+user_factors_df = user_factors_df.set_index('userId')
 
 item_factors_list = []
 for inner_iid in full_trainset_svd.all_items():
@@ -131,7 +131,7 @@ for inner_iid in full_trainset_svd.all_items():
     factors = svd_model.qi[inner_iid]
     item_factors_list.append([raw_iid] + factors.tolist())
 item_factors_df = pd.DataFrame(item_factors_list, columns=['movieId'] + [f'if_svd_{i}' for i in range(N_FACTORS_SVD)])
-item_factors_df.set_index('movieId', inplace=True)
+item_factors_df = item_factors_df.set_index('movieId')
 
 print(f"Extracted {len(user_factors_df)} user SVD factors and {len(item_factors_df)} item SVD factors.")
 
@@ -169,12 +169,12 @@ user_features_df = user_features_df.merge(user_newness_pref_series, on='userId',
 user_features_df = user_features_df.merge(user_genre_diversity_series, on='userId', how='left')
 
 # Fill NaNs for user features
-user_features_df.fillna({
+user_features_df = user_features_df.fillna({
     'user_avg_rating': full_trainset_svd.global_mean, 
     'user_num_ratings': 0,
     'user_newness_pref': median_year, # Fallback to median movie year
     'user_genre_diversity': 0 # Fallback for users with no ratings or diverse genres
-}, inplace=True)
+})
 print("User features (user_features_df) head:")
 print(user_features_df.head())
 
@@ -193,18 +193,18 @@ movie_features_df = item_factors_df.merge(movie_stats, on='movieId', how='left')
 movie_features_df = movie_features_df.merge(base_movie_meta_features_df, on='movieId', how='left')
 
 # Fill NaNs for movie features
-movie_features_df['movie_avg_rating'].fillna(full_trainset_svd.global_mean, inplace=True)
-movie_features_df['movie_num_ratings'].fillna(0, inplace=True)
+movie_features_df['movie_avg_rating'] = movie_features_df['movie_avg_rating'].fillna(full_trainset_svd.global_mean)
+movie_features_df['movie_num_ratings'] = movie_features_df['movie_num_ratings'].fillna(0)
 # Fill NaNs for new movie features that might not have matched (ex a movieId is in SVD factors but not movies_df)
-movie_features_df['year'].fillna(median_year, inplace=True) # Already filled in movies_df, but as safety
-movie_features_df['num_genres'].fillna(0, inplace=True)
-movie_features_df['is_old_movie'].fillna(False, inplace=True)
-movie_features_df['is_recent_movie'].fillna(False, inplace=True)
-movie_features_df['movie_genre_avg_popularity'].fillna(global_avg_movie_rating, inplace=True)
+movie_features_df['year'] = movie_features_df['year'].fillna(median_year) # Already filled in movies_df, but as safety
+movie_features_df['num_genres'] = movie_features_df['num_genres'].fillna(0)
+movie_features_df['is_old_movie'] = movie_features_df['is_old_movie'].fillna(False)
+movie_features_df['is_recent_movie'] = movie_features_df['is_recent_movie'].fillna(False)
+movie_features_df['movie_genre_avg_popularity'] = movie_features_df['movie_genre_avg_popularity'].fillna(global_avg_movie_rating)
 for col in one_hot_decade_columns: # Fill NaN for decade columns with 0
-    movie_features_df[col].fillna(0, inplace=True)
+    movie_features_df[col] = movie_features_df[col].fillna(0)
 for col in one_hot_genre_columns: # Fill NaN for one-hot genre columns with 0
-    movie_features_df[col].fillna(0, inplace=True)
+    movie_features_df[col] = movie_features_df[col].fillna(0)
 
 # Construct XGBoost Training Set
 print("\nConstructing XGBoost Training Set with new features")
@@ -225,7 +225,7 @@ if 'genres' in xgb_train_df.columns: columns_to_drop_for_X.append('genres')
 X = xgb_train_df.drop(columns=columns_to_drop_for_X, errors='ignore')
 
 # Handle any remaining NaNs in X before training
-X.fillna(0, inplace=True)
+X = X.fillna(0)
 print(f"\nNumber of NaNs added: {X.isnull().sum().sum()}")
 
 # Ensure all feature names are strings
