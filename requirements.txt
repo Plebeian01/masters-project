@@ -1,0 +1,8 @@
+pandas
+numpy<2.0
+scikit-surprise
+shap
+lime
+xgboost
+scikit-learn
+scipy
