@@ -26,6 +26,20 @@ ratings_df_orig = pd.read_csv('../dataset/100kDataset/ratings.csv')
 movies_df = movies_df_orig.copy()
 ratings_df = ratings_df_orig.copy()
 
+# Remove movies with less than 3 ratings to remove noise
+movie_rating_counts = ratings_df.groupby('movieId')['rating'] \
+                                .count() \
+                                .rename('movie_num_ratings') \
+                                .reset_index()   
+                                
+cutoff_list = movie_rating_counts.loc[
+    movie_rating_counts['movie_num_ratings'] < 3,
+    'movieId'
+].tolist()         
+   
+movies_df = movies_df[~movies_df['movieId'].isin(cutoff_list)].reset_index(drop=True) 
+ratings_df = ratings_df[~ratings_df['movieId'].isin(cutoff_list)].reset_index(drop=True)           
+                                
 print("\nOriginal Movies head:")
 print(movies_df.head())
 print("\nOriginal Ratings head:")
@@ -87,6 +101,7 @@ movies_df['movie_genre_avg_popularity'] = movies_df['genres'].apply(
 
 # One-hot encode genres (is_<genre>)
 genres_dummies_movies = movies_df['genres'].str.get_dummies(sep='|')
+
 # Ensure no clashes with other column names, e.g. if a genre is named 'year'
 genres_dummies_movies.columns = [f"genre_{col.replace(' ', '_').replace('-', '_')}" for col in genres_dummies_movies.columns]
 one_hot_genre_columns = genres_dummies_movies.columns.tolist() # Update this list
@@ -253,59 +268,6 @@ print("\nRecommendation and Explanation functions will use the new feature set."
 
 MIN_RATINGS_THRESHOLD = 10 
 ABS_PRED_RATING_THRESHOLD = 4.0
-
-# =============================================================================
-# def get_xgb_recommendations(user_id_str, n, model, user_features, all_movie_features, svd_trainset, original_X_columns, 
-#                             min_ratings_threshold=MIN_RATINGS_THRESHOLD, 
-#                             abs_pred_rating_threshold=ABS_PRED_RATING_THRESHOLD):
-#     user_id = int(user_id_str)
-#     if user_id not in user_features.index:
-#         print(f"User ID {user_id} not found. Cannot recommend.")
-#         return []
-#     user_f = user_features.loc[user_id]
-#     try:
-#         user_inner_id = svd_trainset.to_inner_uid(user_id)
-#         rated_movie_raw_ids = {svd_trainset.to_raw_iid(item_inner_id) for item_inner_id, _ in svd_trainset.ur[user_inner_id]}
-#     except ValueError:
-#         rated_movie_raw_ids = set()
-# 
-#     candidate_movies = []
-#     for movie_id_candidate in all_movie_features.index: # Iterate through all movies in features
-#         if movie_id_candidate not in rated_movie_raw_ids:
-#             movie_f = all_movie_features.loc[movie_id_candidate]
-#             if movie_f.get('movie_num_ratings', 0) < min_ratings_threshold:
-#                 continue
-# 
-#             current_features_data = {}
-#             for col in original_X_columns: # Build feature vector based on X_train's columns
-#                 if col in user_f.index:
-#                     current_features_data[col] = user_f[col]
-#                 elif col in movie_f.index:
-#                     current_features_data[col] = movie_f[col]
-#                 else: # Should not happen if original_X_columns is from training
-#                     current_features_data[col] = 0 
-#             
-#             feature_vector_df = pd.DataFrame([current_features_data], columns=original_X_columns)
-#             feature_vector_df = feature_vector_df.fillna(0) # Final safety fill
-# 
-#             try:
-#                 predicted_rating = model.predict(feature_vector_df)[0]
-#                 if predicted_rating >= abs_pred_rating_threshold:
-#                     movie_avg_rating = movie_f.get('movie_avg_rating', global_avg_movie_rating)
-#                     uplift = predicted_rating - movie_avg_rating
-#                     candidate_movies.append({
-#                         'movieId': movie_id_candidate, 
-#                         'predicted_rating': predicted_rating,
-#                         'uplift': uplift,
-#                         'title': movie_id_to_title.get(movie_id_candidate, "Unknown Movie") # Add title here
-#                     })
-#             except Exception as e:
-#                 # print(f"Error predicting for movie {movie_id_candidate}: {e}")
-#                 continue
-# 
-#    
-#    candidate_movies.sort(key=lambda x: x['uplift'], reverse=True)
-#    return candidate_movies[:n] # Return full dicts
 
 def get_new_user_recommendations(
     new_user_ratings_input,
@@ -482,17 +444,22 @@ if __name__ == '__main__':
         mode='regression',
         random_state=42
     )
-    print("SHAP and LIME explainers re-initialized with new feature set.")
 
-    # Test new user recommendations with new features
+    # Test new user recommendations 
     print("\n\nNew User Recommendations")
     new_user_input = [
+        ("Freddy vs. Jason (2003)", 5.0),
+        ("Shining, The (1980)", 5.0),
+        ("Nightmare on Elm Street 2: Freddy's Revenge, A (1985)", 5.0), 
+        ("Pet Sematary (1989)", 5.0), 
+        ("Friday the 13th (2009)", 5.0),
         ("Toy Story (1995)", 5.0),
         ("Jumanji (1995)", 5.0),
         ("Mighty Morphin Power Rangers: The Movie (1995)", 5.0), 
         ("Goofy Movie, A (1995)", 5.0), 
         ("Wizard of Oz, The (1939)", 5.0)
     ]
+    
     new_user_recs = get_new_user_recommendations(
         new_user_input, 5,
         xgb_model,
@@ -504,8 +471,9 @@ if __name__ == '__main__':
         ratings_df,
         one_hot_genre_columns
     )
+    
     if new_user_recs:
-        print(f"\nTop 5 recommendations for the new user (New Features):")
+        print(f"\nTop 5 recommendations for the new user:")
         for rec in new_user_recs:
             print(f"- {rec['title']} (Pred Rating: {rec['predicted_rating']:.4f}, Uplift: {rec['uplift']:.4f}) (MovieID: {rec['movieId']})")
     else:
