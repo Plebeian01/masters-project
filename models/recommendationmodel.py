@@ -22,6 +22,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 # Initial Data Loading 
+
 # Path construction is now robust, based on the location of this file.
 # Assumes this script is in project_root/models/ and data is in project_root/data/
 MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +37,9 @@ print(f"DEBUG: Loading ratings from: {ratings_csv_path}")
 
 movies_df_orig = pd.read_csv(movies_csv_path)
 ratings_df_orig = pd.read_csv(ratings_csv_path)
+# Path adjusted for models/recommendationmodel.py to access data/100kDataset/
+movies_df_orig = pd.read_csv('../data/100kDataset/movies.csv')
+ratings_df_orig = pd.read_csv('../data/100kDataset/ratings.csv')
 
 # Create copies to work with to preserve originals if needed for direct inspection
 movies_df = movies_df_orig.copy()
