@@ -21,8 +21,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 # Initial Data Loading 
-movies_df_orig = pd.read_csv('../dataset/100kDataset/movies.csv')
-ratings_df_orig = pd.read_csv('../dataset/100kDataset/ratings.csv')
+# Path adjusted for models/recommendationmodel.py to access data/100kDataset/
+movies_df_orig = pd.read_csv('../data/100kDataset/movies.csv')
+ratings_df_orig = pd.read_csv('../data/100kDataset/ratings.csv')
 
 # Create copies to work with to preserve originals if needed for direct inspection
 movies_df = movies_df_orig.copy()

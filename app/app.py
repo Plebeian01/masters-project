@@ -4,19 +4,15 @@ import numpy as np
 import sys
 import os
 
-# Try to ensure recommendationmodel.py can be imported
-# and that its relative paths for datasets are handled.
-# This assumes app.py is in the same directory as recommendationmodel.py
-# and that the dataset path '../dataset/' is relative to that directory.
+# Adjust sys.path to include the project root (one level up from 'app' directory)
+# This allows importing from the 'models' directory.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-# Add the directory of the current script to sys.path to allow importing recommendationmodel
-# sys.path.append(os.path.dirname(os.path.abspath(__file__))) # This might not be needed if they are in the same dir and python's import logic finds it.
-
-print("Attempting to load recommendation model components...")
+print("Attempting to load recommendation model components from 'models' module...")
 try:
-    # These global variables will be populated when recommendationmodel is imported
-    # The import will run the script recommendationmodel.py
-    import recommendationmodel as rec_model
+    from models import recommendationmodel as rec_model
 
     # Access the required components from the imported module's namespace
     xgb_model_global = rec_model.xgb_model
