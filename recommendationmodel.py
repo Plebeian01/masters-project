@@ -17,6 +17,8 @@ from sklearn.model_selection import train_test_split as sklearn_train_test_split
 from sklearn.metrics import mean_squared_error
 from scipy.stats import entropy
 from sklearn.metrics.pairwise import cosine_similarity
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 # Initial Data Loading 
 movies_df_orig = pd.read_csv('../dataset/100kDataset/movies.csv')
@@ -81,6 +83,14 @@ decade_dummies = pd.get_dummies(movies_df['decade'], prefix='decade', dummy_na=F
 movies_df = pd.concat([movies_df, decade_dummies], axis=1)
 one_hot_decade_columns = decade_dummies.columns.tolist()
 
+# Compute Series indexed by movieId
+avg_series = ratings_df.groupby('movieId')['rating'].mean()
+count_series = ratings_df.groupby('movieId')['rating'].count()
+
+# Map onto movies_df
+movies_df['avg_rating']  = movies_df['movieId'].map(avg_series).fillna(global_avg_movie_rating)
+movies_df['num_ratings'] = movies_df['movieId'].map(count_series).fillna(0).astype(int)
+
 
 # Add movie_genre_avg_popularity
 def calculate_movie_genre_avg_pop(genres_str, genre_map, default_val):
@@ -125,7 +135,7 @@ print("\nData loaded into Surprise Dataset format.")
 
 # SVD Feature Generation
 print("\nSVD Feature Generation & Initial Setup")
-N_FACTORS_SVD = 50
+N_FACTORS_SVD = 10
 svd_model = SVD(n_factors=N_FACTORS_SVD, n_epochs=20, random_state=42, verbose=False)
 full_trainset_svd = surprise_data.build_full_trainset()
 print("Training SVD model on the full dataset to extract latent factors...")
@@ -168,6 +178,7 @@ user_newness_pref_series = user_movie_years.groupby('userId')['year'].mean().ren
 # Merge user ratings with movie genres (from movies_df)
 user_genre_ratings = pd.merge(ratings_df[['userId', 'movieId']], movies_df[['movieId'] + one_hot_genre_columns], on='movieId')
 user_genre_counts = user_genre_ratings.groupby('userId')[one_hot_genre_columns].sum() # Sum of 1s gives count of ratings per genre for user
+
 
 def calculate_genre_entropy(row):
     genre_counts_for_user = row[row > 0] # Filter out genres not rated by the user
@@ -310,35 +321,51 @@ def get_new_user_recommendations(
     # Find similar users by overlap
     def find_similar_users(lm_ids, ratings_df, thresh=4.0):
         users = set()
-        for m in lm_ids:
-            dfm = ratings_df[(ratings_df.movieId == m) & (ratings_df.rating >= thresh)]
+        for m_id in lm_ids:
+            dfm = ratings_df[(ratings_df.movieId == m_id) & (ratings_df.rating >= thresh)]
             users.update(dfm.userId.tolist())
         return list(users)
 
     sim_users = find_similar_users(liked_movie_ids, ratings_df, min_similar_rating)
     if len(sim_users) < min_similar_users:
-        est_factors = historical_user_factors_df.mean()
+        est_factors = historical_user_factors_df.mean() # Fallback to mean SVD factors
     else:
-        sim_df = historical_user_factors_df.loc[
-            historical_user_factors_df.index.intersection(sim_users)
-        ]
-        est_factors = sim_df.mean()
+        # Filter historical_user_factors_df for users present in its index
+        valid_sim_users = historical_user_factors_df.index.intersection(sim_users)
+        if not valid_sim_users.empty:
+            sim_df = historical_user_factors_df.loc[valid_sim_users]
+            est_factors = sim_df.mean()
+        else: # Fallback if no similar users are found in historical_user_factors_df (edge case)
+             est_factors = historical_user_factors_df.mean()
 
     # Build genre profile
     def make_genre_profile(lm_ids, mf_df, gcols):
-        sub = mf_df.loc[mf_df.index.intersection(lm_ids), gcols]
-        return sub.mean().values.reshape(1, -1)
+        # Filter mf_df for movies present in its index
+        valid_lm_ids = mf_df.index.intersection(lm_ids)
+        if not valid_lm_ids.empty:
+            sub = mf_df.loc[valid_lm_ids, gcols]
+            return sub.mean().values.reshape(1, -1)
+        else: # Fallback if no liked movies are found in mf_df (edge case)
+            return np.zeros((1, len(gcols)))
 
     user_genre_vec = make_genre_profile(liked_movie_ids, all_movie_features_df, genre_columns)
 
     # Assemble new‐user feature dict
     user_feats = {
         'user_avg_rating': user_avg,
-        'user_num_ratings': user_count
+        'user_num_ratings': user_count,
+        'user_newness_pref': median_year, # Default, can be refined
+        'user_genre_diversity': 0 # Default, can be refined
     }
-    for c, v in est_factors.items():
-        if c in original_X_columns:
-            user_feats[c] = v
+    # Add estimated SVD factors to user_feats
+    for i, factor_val in enumerate(est_factors): # est_factors is a Series
+        user_feats[f'uf_svd_{i}'] = factor_val
+    
+    # Ensure all SVD factor columns (uf_svd_0 to uf_svd_N-1) expected by the model are in user_feats
+    for i in range(N_FACTORS_SVD): # Assuming N_FACTORS_SVD is globally available or passed
+        col_name = f'uf_svd_{i}'
+        if col_name not in user_feats:
+            user_feats[col_name] = 0 # Default to 0 if not estimated
 
     # Score candidates
     cands = []
@@ -375,7 +402,8 @@ def get_new_user_recommendations(
             'predicted_rating': pr,
             'uplift': uplift,
             'genre_similarity': sim,
-            'adjusted_uplift': adj
+            'adjusted_uplift': adj,
+            'feature_vector': fv
         })
 
     # Return top‐N by adjusted uplift
@@ -387,7 +415,8 @@ def get_new_user_recommendations(
             'uplift': x['uplift'],
             'genre_similarity': x['genre_similarity'],
             'adjusted_uplift': x['adjusted_uplift'],
-            'movieId': x['movieId']
+            'movieId': x['movieId'],
+            'feature_vector': x['feature_vector']
         }
         for x in cands[:n]
     ]
@@ -452,12 +481,7 @@ if __name__ == '__main__':
         ("Shining, The (1980)", 5.0),
         ("Nightmare on Elm Street 2: Freddy's Revenge, A (1985)", 5.0), 
         ("Pet Sematary (1989)", 5.0), 
-        ("Friday the 13th (2009)", 5.0),
-        ("Toy Story (1995)", 5.0),
-        ("Jumanji (1995)", 5.0),
-        ("Mighty Morphin Power Rangers: The Movie (1995)", 5.0), 
-        ("Goofy Movie, A (1995)", 5.0), 
-        ("Wizard of Oz, The (1939)", 5.0)
+        ("Friday the 13th (2009)", 5.0)
     ]
     
     new_user_recs = get_new_user_recommendations(
@@ -479,3 +503,54 @@ if __name__ == '__main__':
     else:
         print("Could not generate recommendations for the new user.")
 
+    # 1) Collect all candidate feature-vectors
+    #    (assumes each rec dict has a 'feature_vector' key with a 1×F DataFrame)
+    candidate_fvs = [rec['feature_vector'] for rec in new_user_recs]
+    all_candidates_df = pd.concat(candidate_fvs, axis=0)
+    
+    # 2) Build a SHAP background sample from this new-user space
+    bg_size = min(len(all_candidates_df), 100)
+    background_new_user = all_candidates_df.sample(n=bg_size, random_state=42).astype(np.float64)
+    
+    # 3) Instantiate per-user SHAP explainer
+    shap_explainer_new = shap.TreeExplainer(xgb_model, data=background_new_user)
+    
+    # 4) Instantiate per-user LIME explainer
+    lime_explainer_new = lime.lime_tabular.LimeTabularExplainer(
+        training_data=all_candidates_df.values.astype(np.float64),
+        feature_names=X_train.columns.tolist(),
+        mode='regression',
+        random_state=42
+    )
+    
+    # 5) Explain each recommendation
+    print("\n--- New-User SHAP & LIME Explanations ---")
+    for rec in new_user_recs:
+        title    = rec['title']
+        fv        = rec['feature_vector']  # 1×F DataFrame
+    
+        # 5a) SHAP
+        shap_vals = shap_explainer_new.shap_values(fv)
+        base_val  = shap_explainer_new.expected_value
+        contribs  = list(zip(fv.columns, shap_vals[0]))
+        contribs.sort(key=lambda x: abs(x[1]), reverse=True)
+    
+        print(f"\n{title}:")
+        print(f"  SHAP baseline: {base_val:.3f}")
+        print("  Top SHAP drivers:")
+        for feat, val in contribs[:5]:
+            sign = "+" if val >= 0 else ""
+            print(f"    {sign}{val:.3f} → {feat}")
+    
+        # 5b) LIME
+        lime_exp = lime_explainer_new.explain_instance(
+            fv.values[0],
+            lambda x: xgb_model.predict(pd.DataFrame(x, columns=fv.columns)),
+            num_features=5
+        )
+        print("  LIME feature weights:")
+        for feat, weight in lime_exp.as_list():
+            sign = "+" if weight >= 0 else ""
+            print(f"    {sign}{weight:.3f} → {feat}")
+        
+    
