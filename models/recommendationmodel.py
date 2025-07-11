@@ -7,6 +7,7 @@ Created on Sun Jun 22 18:37:06 2025
 
 import pandas as pd
 import numpy as np
+import os
 from surprise import Dataset, Reader, SVD
 from collections import defaultdict
 import shap
@@ -21,8 +22,24 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 # Initial Data Loading 
-movies_df_orig = pd.read_csv('../dataset/100kDataset/movies.csv')
-ratings_df_orig = pd.read_csv('../dataset/100kDataset/ratings.csv')
+
+# Path construction is now robust, based on the location of this file.
+# Assumes this script is in project_root/models/ and data is in project_root/data/
+MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_SUBDIR = os.path.join('..', 'data', '100kDataset') # Relative path from MODEL_DIR to the dataset folder
+DATA_DIR_ABS = os.path.abspath(os.path.join(MODEL_DIR, DATA_SUBDIR))
+
+movies_csv_path = os.path.join(DATA_DIR_ABS, 'movies.csv')
+ratings_csv_path = os.path.join(DATA_DIR_ABS, 'ratings.csv')
+
+print(f"DEBUG: Loading movies from: {movies_csv_path}")
+print(f"DEBUG: Loading ratings from: {ratings_csv_path}")
+
+movies_df_orig = pd.read_csv(movies_csv_path)
+ratings_df_orig = pd.read_csv(ratings_csv_path)
+# Path adjusted for models/recommendationmodel.py to access data/100kDataset/
+movies_df_orig = pd.read_csv('../data/100kDataset/movies.csv')
+ratings_df_orig = pd.read_csv('../data/100kDataset/ratings.csv')
 
 # Create copies to work with to preserve originals if needed for direct inspection
 movies_df = movies_df_orig.copy()

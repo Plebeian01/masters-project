@@ -1,0 +1,11 @@
+Flask
+pandas
+numpy
+scikit-surprise
+shap
+lime
+xgboost
+scikit-learn
+scipy
+seaborn
+matplotlib
