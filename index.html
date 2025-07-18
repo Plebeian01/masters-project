@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Recommendation Study</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            color: white;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            color: rgba(255,255,255,0.9);
+            font-size: 1.1rem;
+            margin-bottom: 30px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .section h2 {
+            color: #4a5568;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        .movie-input-section {
+            position: relative;
+        }
+
+        .search-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .search-results {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+
+        .search-result-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .search-result-item:hover {
+            background-color: #f7fafc;
+        }
+
+        .rating-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .rating-btn {
+            padding: 8px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .rating-btn:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .rating-btn.selected {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .add-movie-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .add-movie-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .add-movie-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .selected-movies {
+            margin-top: 20px;
+        }
+
+        .movie-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .movie-info {
+            flex: 1;
+        }
+
+        .movie-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 4px;
+        }
+
+        .movie-rating {
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        .remove-btn {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s ease;
+        }
+
+        .remove-btn:hover {
+            background: #c53030;
+        }
+
+        .get-recommendations-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .get-recommendations-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.3);
+        }
+
+        .get-recommendations-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .recommendations-section {
+            min-height: 400px;
+        }
+
+        .recommendation-item {
+            background: linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 5px solid #667eea;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .recommendation-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+
+        .rec-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 12px;
+        }
+
+        .rec-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .metric {
+            text-align: center;
+            padding: 8px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: #718096;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .explanation-content {
+            background: #f0f4ff;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            border-left: 3px solid #667eea;
+        }
+
+        .explanation-type-label {
+            font-size: 0.9rem;
+            color: #667eea;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .feature-contribution {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .feature-contribution:last-child {
+            border-bottom: none;
+        }
+
+        .feature-name {
+            font-size: 0.85rem;
+            color: #4a5568;
+            flex: 1;
+        }
+
+        .feature-impact {
+            font-weight: 600;
+            font-size: 0.85rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-left: 10px;
+        }
+
+        .impact-positive {
+            background: #c6f6d5;
+            color: #2f855a;
+        }
+
+        .impact-negative {
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+        .baseline-info {
+            font-size: 0.8rem;
+            color: #718096;
+            margin-bottom: 8px;
+        }
+
+        .toggle-explanations {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .toggle-explanations:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .study-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .study-modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .study-modal-content h3 {
+            color: #4a5568;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .rating-section {
+            margin: 30px 0;
+            text-align: center;
+        }
+
+        .helpfulness-rating {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .helpfulness-rating .rating-btn {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+        }
+
+        .helpfulness-rating .rating-btn:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .helpfulness-rating .rating-btn.selected {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.3);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .close-btn {
+            background: #e2e8f0;
+            color: #4a5568;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .close-btn:hover {
+            background: #cbd5e0;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fed7d7;
+            border: 1px solid #feb2b2;
+            border-radius: 8px;
+            padding: 15px;
+            color: #c53030;
+            margin: 10px 0;
+        }
+
+        .success {
+            background: #c6f6d5;
+            border: 1px solid #9ae6b4;
+            border-radius: 8px;
+            padding: 15px;
+            color: #2f855a;
+            margin: 10px 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .section {
+                padding: 20px;
+            }
+
+            .rec-metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .study-modal-content {
+                width: 95%;
+                padding: 20px;
+            }
+            
+            .helpfulness-rating {
+                gap: 8px;
+            }
+            
+            .modal-buttons {
+                flex-direction: column;
+            }
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-connected {
+            background: #48bb78;
+        }
+
+        .status-disconnected {
+            background: #e53e3e;
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            font-size: 14px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">
+        <span class="status-indicator status-disconnected"></span>
+        Checking connection...
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>Movie Recommendation Study</h1>
+            <p class="subtitle">Rate movies you've enjoyed to receive personalized recommendations</p>
+        </header>
+
+        <div class="main-content">
+            <div class="section movie-input-section">
+                <h2>Rate Your Favorite Movies</h2>
+                
+                <div class="search-container">
+                    <input 
+                        type="text" 
+                        class="search-input" 
+                        id="movieSearch" 
+                        placeholder="Search for a movie..." 
+                        autocomplete="off"
+                    >
+                    <div class="search-results" id="searchResults"></div>
+                </div>
+
+                <div class="rating-selector" id="ratingSelector">
+                    <span style="font-weight: 600; color: #4a5568;">Your Rating:</span>
+                    <button class="rating-btn" data-rating="1">1 ⭐</button>
+                    <button class="rating-btn" data-rating="2">2 ⭐</button>
+                    <button class="rating-btn" data-rating="3">3 ⭐</button>
+                    <button class="rating-btn" data-rating="4">4 ⭐</button>
+                    <button class="rating-btn selected" data-rating="5">5 ⭐</button>
+                </div>
+
+                <button class="add-movie-btn" id="addMovieBtn" disabled>
+                    Add Movie to Your List
+                </button>
+
+                <div class="selected-movies" id="selectedMovies">
+                    <h3 style="margin-bottom: 15px; color: #4a5568;">Your Rated Movies:</h3>
+                    <div id="movieList">
+                        <p style="color: #718096; font-style: italic;">No movies rated yet</p>
+                    </div>
+                </div>
+
+                <button class="get-recommendations-btn" id="getRecommendationsBtn" disabled>
+                    Generate Recommendations
+                </button>
+            </div>
+
+            <div class="section recommendations-section">
+                <h2>Your Recommendations</h2>
+                <div id="recommendationsContainer">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <p>Rate at least one movie to generate personalized recommendations</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="studyModal" class="study-modal" style="display: none;">
+            <div class="study-modal-content">
+                <h3>Rate the Helpfulness of This Explanation</h3>
+                <div id="studyModalContent"></div>
+                <div class="rating-section">
+                    <p>How helpful was this explanation in understanding why this movie was recommended?</p>
+                    <div class="helpfulness-rating">
+                        <button class="rating-btn" data-rating="1">1 - Not helpful</button>
+                        <button class="rating-btn" data-rating="2">2 - Slightly helpful</button>
+                        <button class="rating-btn" data-rating="3">3 - Moderately helpful</button>
+                        <button class="rating-btn" data-rating="4">4 - Very helpful</button>
+                        <button class="rating-btn" data-rating="5">5 - Extremely helpful</button>
+                    </div>
+                </div>
+                <div class="modal-buttons">
+                    <button id="submitRatingBtn" class="submit-btn" disabled>Submit Rating</button>
+                    <button id="closeModalBtn" class="close-btn">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class MovieRecommendationApp {
+            constructor() {
+                this.apiBase = 'http://localhost:5000/api';
+                this.selectedMovies = [];
+                this.selectedRating = 5;
+                this.selectedMovieTitle = '';
+                this.searchTimeout = null;
+                this.isConnected = false;
+                this.userId = this.generateUserId();
+                this.currentRecommendations = [];
+                this.currentModalData = null;
+                
+                this.initializeElements();
+                this.setupEventListeners();
+                this.checkConnection();
+            }
+
+            generateUserId() {
+                return 'user_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+            }
+
+            initializeElements() {
+                this.movieSearch = document.getElementById('movieSearch');
+                this.searchResults = document.getElementById('searchResults');
+                this.ratingSelector = document.getElementById('ratingSelector');
+                this.addMovieBtn = document.getElementById('addMovieBtn');
+                this.movieList = document.getElementById('movieList');
+                this.getRecommendationsBtn = document.getElementById('getRecommendationsBtn');
+                this.recommendationsContainer = document.getElementById('recommendationsContainer');
+                this.connectionStatus = document.getElementById('connectionStatus');
+                this.studyModal = document.getElementById('studyModal');
+                this.studyModalContent = document.getElementById('studyModalContent');
+                this.submitRatingBtn = document.getElementById('submitRatingBtn');
+                this.closeModalBtn = document.getElementById('closeModalBtn');
+            }
+
+            setupEventListeners() {
+                this.movieSearch.addEventListener('input', (e) => this.handleSearchInput(e));
+                this.movieSearch.addEventListener('blur', () => {
+                    setTimeout(() => this.hideSearchResults(), 200);
+                });
+
+                this.ratingSelector.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('rating-btn')) {
+                        this.selectRating(e.target.dataset.rating);
+                    }
+                });
+
+                this.addMovieBtn.addEventListener('click', () => this.addMovie());
+                this.getRecommendationsBtn.addEventListener('click', () => this.getRecommendations());
+
+                this.movieSearch.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' && this.selectedMovieTitle) {
+                        this.addMovie();
+                    }
+                });
+
+                // Study modal events
+                this.submitRatingBtn.addEventListener('click', () => this.submitStudyRating());
+                this.closeModalBtn.addEventListener('click', () => this.closeStudyModal());
+                
+                // Close modal when clicking backdrop
+                this.studyModal.addEventListener('click', (e) => {
+                    if (e.target === this.studyModal) {
+                        this.closeStudyModal();
+                    }
+                });
+                
+                // Modal rating selection
+                this.studyModal.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('rating-btn') && e.target.dataset.rating) {
+                        this.selectModalRating(e.target.dataset.rating);
+                    }
+                });
+            }
+
+            async checkConnection() {
+                try {
+                    const response = await fetch(`${this.apiBase}/health`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'healthy') {
+                        this.isConnected = true;
+                        this.updateConnectionStatus('Connected to server', true);
+                        
+                        if (!data.model_trained) {
+                            this.showMessage('Model is training, please wait...', 'info');
+                        }
+                    } else {
+                        throw new Error('Server unhealthy');
+                    }
+                } catch (error) {
+                    this.isConnected = false;
+                    this.updateConnectionStatus('Server disconnected', false);
+                    this.showMessage('Cannot connect to server. Please start the Flask backend.', 'error');
+                }
+            }
+
+            updateConnectionStatus(message, connected) {
+                const indicator = this.connectionStatus.querySelector('.status-indicator');
+                indicator.className = `status-indicator ${connected ? 'status-connected' : 'status-disconnected'}`;
+                this.connectionStatus.innerHTML = `${indicator.outerHTML}${message}`;
+            }
+
+            async handleSearchInput(e) {
+                const query = e.target.value.trim();
+                
+                if (this.searchTimeout) {
+                    clearTimeout(this.searchTimeout);
+                }
+
+                if (query.length < 2) {
+                    this.hideSearchResults();
+                    return;
+                }
+
+                this.searchTimeout = setTimeout(async () => {
+                    await this.searchMovies(query);
+                }, 300);
+            }
+
+            async searchMovies(query) {
+                if (!this.isConnected) {
+                    this.showMessage('Cannot search: not connected to server', 'error');
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`${this.apiBase}/movies/search?q=${encodeURIComponent(query)}`);
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.displaySearchResults(data.movies);
+                    } else {
+                        throw new Error(data.error || 'Search failed');
+                    }
+                } catch (error) {
+                    console.error('Search error:', error);
+                    this.showMessage('Error searching movies: ' + error.message, 'error');
+                }
+            }
+
+            displaySearchResults(movies) {
+                if (movies.length === 0) {
+                    this.hideSearchResults();
+                    return;
+                }
+
+                this.searchResults.innerHTML = movies
+                    .slice(0, 10)
+                    .map(movie => `
+                        <div class="search-result-item" onclick="app.selectMovie('${movie.replace(/'/g, "\\'")}')">
+                            ${movie}
+                        </div>
+                    `).join('');
+
+                this.searchResults.style.display = 'block';
+            }
+
+            hideSearchResults() {
+                this.searchResults.style.display = 'none';
+            }
+
+            selectMovie(title) {
+                this.selectedMovieTitle = title;
+                this.movieSearch.value = title;
+                this.hideSearchResults();
+                this.updateAddButton();
+            }
+
+            selectRating(rating) {
+                this.selectedRating = parseInt(rating);
+                
+                this.ratingSelector.querySelectorAll('.rating-btn').forEach(btn => {
+                    btn.classList.remove('selected');
+                });
+                this.ratingSelector.querySelector(`[data-rating="${rating}"]`).classList.add('selected');
+                
+                this.updateAddButton();
+            }
+
+            updateAddButton() {
+                const canAdd = this.selectedMovieTitle && 
+                              !this.selectedMovies.some(m => m.title === this.selectedMovieTitle);
+                
+                this.addMovieBtn.disabled = !canAdd;
+                
+                if (this.selectedMovies.some(m => m.title === this.selectedMovieTitle)) {
+                    this.addMovieBtn.textContent = 'Movie Already Added';
+                } else if (this.selectedMovieTitle) {
+                    this.addMovieBtn.textContent = 'Add Movie to Your List';
+                } else {
+                    this.addMovieBtn.textContent = 'Search for a Movie First';
+                }
+            }
+
+            addMovie() {
+                if (!this.selectedMovieTitle || this.selectedMovies.some(m => m.title === this.selectedMovieTitle)) {
+                    return;
+                }
+
+                const movie = {
+                    title: this.selectedMovieTitle,
+                    rating: this.selectedRating
+                };
+
+                this.selectedMovies.push(movie);
+                this.updateMovieList();
+                this.updateRecommendationsButton();
+                
+                this.movieSearch.value = '';
+                this.selectedMovieTitle = '';
+                this.updateAddButton();
+                
+                this.showMessage(`Added "${movie.title}" with ${movie.rating} stars`, 'success');
+            }
+
+            removeMovie(index) {
+                const removed = this.selectedMovies.splice(index, 1)[0];
+                this.updateMovieList();
+                this.updateRecommendationsButton();
+                this.updateAddButton();
+                
+                this.showMessage(`Removed "${removed.title}"`, 'info');
+            }
+
+            updateMovieList() {
+                if (this.selectedMovies.length === 0) {
+                    this.movieList.innerHTML = '<p style="color: #718096; font-style: italic;">No movies rated yet</p>';
+                    return;
+                }
+
+                this.movieList.innerHTML = this.selectedMovies.map((movie, index) => `
+                    <div class="movie-item">
+                        <div class="movie-info">
+                            <div class="movie-title">${movie.title}</div>
+                            <div class="movie-rating">${movie.rating} ⭐</div>
+                        </div>
+                        <button class="remove-btn" onclick="app.removeMovie(${index})">Remove</button>
+                    </div>
+                `).join('');
+            }
+
+            updateRecommendationsButton() {
+                this.getRecommendationsBtn.disabled = this.selectedMovies.length === 0;
+            }
+
+            async getRecommendations() {
+                if (this.selectedMovies.length === 0 || !this.isConnected) {
+                    return;
+                }
+
+                this.showLoading();
+
+                try {
+                    const response = await fetch(`${this.apiBase}/study/recommendations`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            ratings: this.selectedMovies,
+                            user_id: this.userId
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.currentRecommendations = data.recommendations;
+                        this.displayStudyRecommendations(data.recommendations);
+                        this.showMessage('Recommendations generated successfully', 'success');
+                    } else {
+                        throw new Error(data.error || 'Failed to get recommendations');
+                    }
+                } catch (error) {
+                    console.error('Recommendation error:', error);
+                    this.showMessage('Error getting recommendations: ' + error.message, 'error');
+                    this.showEmptyState();
+                }
+            }
+
+            displayStudyRecommendations(recommendations) {
+                if (recommendations.length === 0) {
+                    this.recommendationsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📊</div>
+                            <p>No recommendations found. Try rating more diverse movies.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                this.recommendationsContainer.innerHTML = recommendations.map((rec, index) => `
+                    <div class="recommendation-item">
+                        <div class="rec-title">${index + 1}. ${rec.title}</div>
+                        <div class="rec-metrics">
+                            <div class="metric">
+                                <div class="metric-label">Predicted Rating</div>
+                                <div class="metric-value">${rec.predicted_rating.toFixed(3)}/5</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Confidence Score</div>
+                                <div class="metric-value">${rec.adjusted_uplift.toFixed(3)}</div>
+                            </div>
+                        </div>
+                        ${this.renderStudyExplanation(rec, index)}
+                    </div>
+                `).join('');
+            }
+
+            renderStudyExplanation(recommendation, index) {
+                const explanation = recommendation.explanation;
+                const explanationType = recommendation.explanation_type;
+
+                if (explanationType === 'none') {
+                    return `
+                        <button class="toggle-explanations" onclick="app.openStudyModal(${index})">
+                            Rate This Recommendation
+                        </button>
+                    `;
+                }
+
+                let explanationContent = '';
+                
+                if (explanationType === 'basic') {
+                    explanationContent = `
+                        <div class="explanation-content">
+                            <div class="explanation-type-label">Basic Information</div>
+                            <p>${explanation.content}</p>
+                        </div>
+                    `;
+                } else if (explanationType === 'shap') {
+                    if (explanation && explanation.features && explanation.features.length > 0) {
+                        const featuresHtml = explanation.features.map(feature => `
+                            <div class="feature-contribution">
+                                <span class="feature-name">${this.formatFeatureName(feature.feature)}</span>
+                                <span class="feature-impact ${feature.contribution >= 0 ? 'impact-positive' : 'impact-negative'}">
+                                    ${feature.contribution >= 0 ? '+' : ''}${feature.contribution.toFixed(4)}
+                                </span>
+                            </div>
+                        `).join('');
+                        
+                        explanationContent = `
+                            <div class="explanation-content">
+                                <div class="explanation-type-label">SHAP Feature Importance</div>
+                                <div class="baseline-info">Baseline prediction: ${explanation.baseline.toFixed(3)}/5</div>
+                                ${featuresHtml}
+                            </div>
+                        `;
+                    } else {
+                        explanationContent = `
+                            <div class="explanation-content">
+                                <div class="explanation-type-label">SHAP Feature Importance</div>
+                                <p style="color: #718096; font-style: italic;">No significant feature contributions detected.</p>
+                            </div>
+                        `;
+                    }
+                } else if (explanationType === 'lime') {
+                    if (explanation && explanation.features && explanation.features.length > 0) {
+                        const featuresHtml = explanation.features.map(feature => {
+                            const featureName = typeof feature.feature === 'string' ? feature.feature : `Feature ${feature.feature}`;
+                            return `
+                                <div class="feature-contribution">
+                                    <span class="feature-name">${this.formatFeatureName(featureName)}</span>
+                                    <span class="feature-impact ${feature.contribution >= 0 ? 'impact-positive' : 'impact-negative'}">
+                                        ${feature.contribution >= 0 ? '+' : ''}${feature.contribution.toFixed(4)}
+                                    </span>
+                                </div>
+                            `;
+                        }).join('');
+                        
+                        explanationContent = `
+                            <div class="explanation-content">
+                                <div class="explanation-type-label">LIME Feature Importance</div>
+                                ${featuresHtml}
+                            </div>
+                        `;
+                    } else {
+                        explanationContent = `
+                            <div class="explanation-content">
+                                <div class="explanation-type-label">LIME Feature Importance</div>
+                                <p style="color: #718096; font-style: italic;">No feature contributions available.</p>
+                            </div>
+                        `;
+                    }
+                } else if (explanationType === 'llm') {
+                    explanationContent = `
+                        <div class="explanation-content">
+                            <div class="explanation-type-label">AI Explanation</div>
+                            <p>${explanation.content}</p>
+                        </div>
+                    `;
+                }
+
+                return `
+                    ${explanationContent}
+                    <button class="toggle-explanations" onclick="app.openStudyModal(${index})">
+                        Rate This Explanation
+                    </button>
+                `;
+            }
+
+            openStudyModal(index) {
+                if (!this.currentRecommendations || !this.currentRecommendations[index]) {
+                    console.error('No recommendation found for index:', index);
+                    return;
+                }
+
+                const recommendation = this.currentRecommendations[index];
+                this.currentModalData = {
+                    recommendation: recommendation,
+                    index: index
+                };
+
+                const explanationType = recommendation.explanation_type;
+                const explanationLabel = {
+                    'none': 'No Explanation',
+                    'basic': 'Basic Information',
+                    'shap': 'SHAP Feature Importance',
+                    'lime': 'LIME Feature Importance',
+                    'llm': 'AI Generated Explanation'
+                }[explanationType] || 'Unknown';
+
+                this.studyModalContent.innerHTML = `
+                    <div class="explanation-content">
+                        <h4>${recommendation.title}</h4>
+                        <p><strong>Explanation Type:</strong> ${explanationLabel}</p>
+                        <p><strong>Predicted Rating:</strong> ${recommendation.predicted_rating.toFixed(3)}/5</p>
+                    </div>
+                `;
+
+                this.studyModal.style.display = 'flex';
+                
+                // Reset rating selection
+                this.studyModal.querySelectorAll('.rating-btn').forEach(btn => {
+                    btn.classList.remove('selected');
+                });
+                this.submitRatingBtn.disabled = true;
+            }
+
+            selectModalRating(rating) {
+                this.currentModalData.selectedRating = parseInt(rating);
+                
+                // Update UI
+                this.studyModal.querySelectorAll('.rating-btn').forEach(btn => {
+                    btn.classList.remove('selected');
+                });
+                this.studyModal.querySelector(`[data-rating="${rating}"]`).classList.add('selected');
+                
+                this.submitRatingBtn.disabled = false;
+            }
+
+            async submitStudyRating() {
+                if (!this.currentModalData || !this.currentModalData.selectedRating) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`${this.apiBase}/study/response`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            user_id: this.userId,
+                            movie_title: this.currentModalData.recommendation.title,
+                            explanation_type: this.currentModalData.recommendation.explanation_type,
+                            helpfulness_rating: this.currentModalData.selectedRating
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        this.showMessage('Thank you for your feedback!', 'success');
+                        this.closeStudyModal();
+                    } else {
+                        throw new Error(data.error || 'Failed to submit rating');
+                    }
+                } catch (error) {
+                    console.error('Error submitting rating:', error);
+                    this.showMessage('Error submitting rating: ' + error.message, 'error');
+                }
+            }
+
+            closeStudyModal() {
+                this.studyModal.style.display = 'none';
+                this.currentModalData = null;
+            }
+
+            formatFeatureName(featureName) {
+                // Handle null/undefined feature names
+                if (!featureName) return 'Unknown Feature';
+                
+                // Convert to string if it's not already
+                const nameStr = String(featureName);
+                
+                // Convert technical feature names to human-readable format
+                const featureMap = {
+                    'user_avg_rating': 'Your Average Rating',
+                    'user_num_ratings': 'Your Rating Count',
+                    'user_newness_pref': 'Your Preference for New Movies',
+                    'user_genre_diversity': 'Your Genre Diversity',
+                    'movie_avg_rating': 'Movie\'s Average Rating',
+                    'movie_num_ratings': 'Movie\'s Popularity',
+                    'num_genres': 'Number of Genres',
+                    'year': 'Movie Year',
+                    'is_old_movie': 'Classic Movie (Pre-1990)',
+                    'is_recent_movie': 'Recent Movie (Post-2015)',
+                    'movie_genre_avg_popularity': 'Genre Popularity Score'
+                };
+
+                // Handle SVD factors
+                if (nameStr.startsWith('uf_svd_')) {
+                    const factor = nameStr.split('_')[2];
+                    return `User Preference Factor ${factor}`;
+                }
+                if (nameStr.startsWith('if_svd_')) {
+                    const factor = nameStr.split('_')[2];
+                    return `Movie Feature ${factor}`;
+                }
+
+                // Handle genre features
+                if (nameStr.startsWith('genre_')) {
+                    const genre = nameStr.replace('genre_', '').replace(/_/g, ' ');
+                    return `Genre: ${genre}`;
+                }
+
+                // Handle decade features
+                if (nameStr.startsWith('decade_')) {
+                    const decade = nameStr.replace('decade_', '');
+                    return `${decade}s Movie`;
+                }
+
+                return featureMap[nameStr] || nameStr;
+            }
+
+            showLoading() {
+                this.recommendationsContainer.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>Analyzing preferences and generating recommendations...</p>
+                    </div>
+                `;
+            }
+
+            showEmptyState() {
+                this.recommendationsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <p>Rate at least one movie to generate personalized recommendations</p>
+                    </div>
+                `;
+            }
+
+            showMessage(message, type = 'info') {
+                // Remove existing messages
+                document.querySelectorAll('.error, .success, .info').forEach(el => el.remove());
+
+                const messageEl = document.createElement('div');
+                messageEl.className = type === 'error' ? 'error' : (type === 'success' ? 'success' : 'info');
+                messageEl.textContent = message;
+
+                // Insert after the header
+                const header = document.querySelector('header');
+                header.insertAdjacentElement('afterend', messageEl);
+
+                // Messages now stay until replaced by another message
+            }
+        }
+
+        // Initialize the app
+        const app = new MovieRecommendationApp();
+
+        // Check connection periodically
+        setInterval(() => {
+            app.checkConnection();
+        }, 30000);
+    </script>
+</body>
+</html>
