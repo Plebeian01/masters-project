@@ -5,9 +5,10 @@ Created on Thu Jul 17 15:54:16 2025
 @author: freez
 """
 
-from flask import request, jsonify
+from flask import request, jsonify, send_from_directory
 import uuid
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,11 @@ def register_routes(app, model):
     
     # Import utils functions here to avoid circular imports
     from utils import make_json_serializable, save_study_response
+    
+    @app.route('/')
+    def serve_frontend():
+        """Serve the main HTML page"""
+        return send_from_directory('.', 'index.html')
     
     @app.route('/api/health', methods=['GET'])
     def health_check():
