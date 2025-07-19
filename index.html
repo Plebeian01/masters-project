@@ -662,7 +662,7 @@
                 </div>
                 <div class="modal-buttons">
                     <button id="submitRatingBtn" class="submit-btn" disabled>Submit Rating</button>
-                    <button id="closeModalBtn" class="close-btn">Cancel</button>
+                    <button id="closeModalBtn" class="close-btn">Skip</button>
                 </div>
             </div>
         </div>
@@ -671,7 +671,11 @@
     <script>
         class MovieRecommendationApp {
             constructor() {
-                this.apiBase = 'http://localhost:5000/api';
+                // Automatically detect if we're on localhost or production
+                this.apiBase = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                    ? 'http://localhost:5000/api' 
+                    : window.location.origin + '/api';
+                
                 this.selectedMovies = [];
                 this.selectedRating = 5;
                 this.selectedMovieTitle = '';

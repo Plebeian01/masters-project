@@ -8,6 +8,7 @@ Created on Thu Jul 17 15:53:45 2025
 from flask import Flask
 from flask_cors import CORS
 import logging
+import os
 
 # Import our modules
 from models import MovieRecommendationModel
@@ -37,4 +38,6 @@ if __name__ == '__main__':
         logger.warning(f"Could not load model on startup: {str(e)}")
         logger.info("Model can be trained via /api/train endpoint")
     
-    app.run(debug=False, host='0.0.0.0', port=5000, threaded=True, use_reloader=False)
+    # Use environment PORT for Railway deployment, or default to 5000 for local
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port, threaded=True, use_reloader=False)
