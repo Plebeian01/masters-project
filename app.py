@@ -6,7 +6,6 @@ Created on Thu Jul 17 15:53:45 2025
 """
 
 from flask import Flask
-from flask_cors import CORS
 import logging
 import os
 
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Create Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# CORS removed - not needed when serving from same domain
 
 # Create model instance
 model = MovieRecommendationModel()
