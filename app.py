@@ -6,6 +6,7 @@ Created on Thu Jul 17 15:53:45 2025
 """
 
 from flask import Flask
+from flask_cors import CORS
 import logging
 import os
 
@@ -14,12 +15,12 @@ from models import MovieRecommendationModel
 from routes import register_routes
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Create Flask app
 app = Flask(__name__)
-# CORS removed - not needed when serving from same domain
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Create model instance
 model = MovieRecommendationModel()
@@ -39,4 +40,4 @@ if __name__ == '__main__':
     
     # Use environment PORT for Railway deployment, or default to 5000 for local
     port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port, threaded=True, use_reloader=False)
+    app.run(debug=True, host='0.0.0.0', port=port) #SET TO FALSE

@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Jul 17 15:54:57 2025
-
-@author: freez
-"""
-
 import pandas as pd
 import numpy as np
 import os
@@ -20,6 +13,7 @@ import shap
 import lime
 import lime.lime_tabular
 import random
+import openai
 
 logger = logging.getLogger(__name__)
 
@@ -378,26 +372,115 @@ class MovieRecommendationModel:
         return list(users)
     
     def get_recommendations_for_study(self, user_ratings_input, n=5):
-        """Get recommendations with randomized explanation types for user study"""
-        # Get base recommendations
-        recommendations = self.get_recommendations(user_ratings_input, n)
-        
+        """
+        Get recommendations with randomized explanation types for user study,
+        ensuring that each explanation type appears exactly once per batch.
+        """
+    
+        recommendations = self.get_recommendations(user_ratings_input, n + 5)
         if not recommendations:
-            return recommendations
-        
-        # Define explanation types
+            return []
+    
+        top_recommendations = recommendations[:n]
+    
+        # Insert decoy/baseline
+        baseline_movie = self._select_baseline_movie(recommendations, top_recommendations)
+        if baseline_movie:
+            replace_idx = random.randint(0, len(top_recommendations) - 1)
+            top_recommendations[replace_idx] = baseline_movie
+    
+        # Assign explanation types
         explanation_types = ['none', 'basic', 'shap', 'lime', 'llm']
-        
-        # Randomly assign explanation types (one per recommendation, no repeats)
-        random.shuffle(explanation_types)
-        
-        # Generate explanations for each recommendation
-        for i, rec in enumerate(recommendations):
-            explanation_type = explanation_types[i] if i < len(explanation_types) else 'none'
+        random.shuffle(explanation_types)  # Randomize order for each batch
+    
+        for rec, explanation_type in zip(top_recommendations, explanation_types):
+            rec['is_baseline'] = rec.get('is_baseline', False)
             rec['explanation_type'] = explanation_type
             rec['explanation'] = self.generate_explanation(rec, user_ratings_input, explanation_type)
+    
+        return top_recommendations
             
-        return recommendations
+    def _select_baseline_movie(self, all_recommendations, top_recommendations):
+        """
+        Select a decoy (baseline) movie that feels like a generic, plausible recommendation:
+        - Moderate popularity and average global rating.
+        - Weakly similar to the user's preferences (not completely irrelevant).
+        - Always returns one decoy (falls back to random non-top rec if needed).
+        - Displayed predicted rating is faked to look convincing.
+        """
+        try:
+            top_ids = {rec['movieId'] for rec in top_recommendations}
+    
+            # ---- ✅ Build user genre profile ----
+            liked_movie_ids = [rec['movieId'] for rec in top_recommendations]
+            user_genre_vec = np.zeros((1, len(self.one_hot_genre_columns)))
+    
+            if liked_movie_ids:
+                valid_liked_ids = self.movie_features_df.index.intersection(liked_movie_ids)
+                if not valid_liked_ids.empty:
+                    user_genre_vec = self.movie_features_df.loc[
+                        valid_liked_ids, self.one_hot_genre_columns
+                    ].mean().values.reshape(1, -1)
+    
+            # ---- ✅ Select "middle-of-the-road" candidates ----
+            candidates = []
+            for mid, mf in self.movie_features_df.iterrows():
+                if mid in top_ids:
+                    continue
+    
+                # Compute similarity to user's preferences
+                sim = float(
+                    cosine_similarity(
+                        user_genre_vec, mf[self.one_hot_genre_columns].values.reshape(1, -1)
+                    )[0, 0]
+                )
+    
+                # Get global stats (default to average-like values if missing)
+                global_avg = mf.get("global_avg_rating", 3.5)
+                num_ratings = mf.get("movie_num_ratings", 100)
+    
+                # Criteria for plausible "average" recommendations
+                if (
+                    0.05 <= sim <= 0.15  # weak but not zero similarity
+                    and 3.0 <= global_avg <= 3.7
+                    and 50 <= num_ratings <= 5000
+                ):
+                    candidates.append({
+                        "movieId": int(mid),
+                        "title": self.movie_id_to_title.get(mid, "Unknown"),
+                        "predicted_rating": global_avg,
+                        "uplift": 0.0,
+                        "genre_similarity": sim,
+                        "adjusted_uplift": 0.0
+                    })
+    
+            # ---- ✅ Sort by "middle-of-the-roadness" ----
+            if candidates:
+                candidates.sort(key=lambda x: abs(x["predicted_rating"] - 3.5))
+                baseline = random.choice(candidates[:10]) if len(candidates) > 10 else candidates[0]
+            else:
+                # Fallback: pick any non-top recommendation
+                fallback_candidates = [rec for rec in all_recommendations if rec['movieId'] not in top_ids]
+                if not fallback_candidates:
+                    return None
+                baseline = random.choice(fallback_candidates)
+    
+            # ---- ✅ Make it LOOK like a strong recommendation ----
+            baseline_display = baseline.copy()
+            baseline_display["predicted_rating"] = round(random.uniform(4.3, 4.6), 3)
+            baseline_display["is_baseline"] = True
+    
+            logger.info(
+                f"Selected baseline decoy: {baseline_display['title']} "
+                f"(real avg_rating={baseline.get('predicted_rating', 3.5):.2f}, "
+                f"genre_sim={baseline['genre_similarity']:.3f})"
+            )
+    
+            return baseline_display
+    
+        except Exception as e:
+            logger.warning(f"Could not select baseline movie: {str(e)}")
+            return None
     
     def generate_explanation(self, recommendation, user_ratings_input, explanation_type):
         """Generate explanation based on type"""
@@ -413,7 +496,7 @@ class MovieRecommendationModel:
         elif explanation_type == 'lime':
             return self.generate_lime_explanation(recommendation, user_ratings_input)
         elif explanation_type == 'llm':
-            return self.generate_llm_explanation(recommendation)
+            return self.generate_llm_explanation(recommendation, user_ratings_input)
         
         return None
     
@@ -579,9 +662,71 @@ class MovieRecommendationModel:
             logger.warning(f"Could not generate LIME explanation: {str(e)}")
             return None
     
-    def generate_llm_explanation(self, recommendation):
-        """Generate LLM-style explanation (placeholder)"""
-        # Placeholder LLM explanation
+    def generate_llm_explanation(self, recommendation, user_ratings_input=None):
+        """Generate LLM-style explanation using OpenAI"""
+        
+        # Get OpenAI API key from environment variable
+        api_key = os.environ.get('OPENAI_API_KEY')
+        
+        if not api_key:
+            logger.warning("OpenAI API key not found, using placeholder explanation")
+            return self._get_placeholder_explanation(recommendation)
+        
+        try:
+            # Set up OpenAI client
+            client = openai.OpenAI(api_key=api_key)
+            
+            # Build context about user's preferences
+            user_context = ""
+            if user_ratings_input:
+                liked_movies = [title for title, rating in user_ratings_input if rating >= 4]
+                if liked_movies:
+                    user_context = f"The user has rated these movies highly: {', '.join(liked_movies[:3])}. "
+            
+            # Create a focused prompt for movie recommendation explanation
+            prompt = f"""You are explaining why a movie recommendation system suggested a specific movie to a user. 
+
+{user_context}Based on this, the system recommended: "{recommendation['title']}"
+
+Write a brief, personalized explanation (2-3 sentences) for why this movie was recommended. Focus on:
+- How it relates to their viewing preferences
+- What makes this movie a good match
+- Maintaining a polite and professional tone throughout your response
+- Keeping responses brief and to-the-point, without any fluff text
+
+All recommendations make sense as a movie the user is expected to like based on their preferences.
+
+Explanation:"""
+
+            # Call OpenAI API
+            logger.debug(f"Sending prompt to OpenAI: {prompt}")
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful movie recommendation explainer. Keep explanations brief and personalized."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=100,
+                temperature=0.7
+            )
+            
+            explanation_text = response.choices[0].message.content.strip()
+            
+            logger.info(f"Generated OpenAI explanation for {recommendation['title']}")
+            
+            return {
+                'type': 'llm',
+                'content': explanation_text,
+                'source': 'openai'
+            }
+            
+        except Exception as e:
+            logger.error(f"OpenAI API call failed: {str(e)}")
+            # Fallback to placeholder
+            return self._get_placeholder_explanation(recommendation)
+    
+    def _get_placeholder_explanation(self, recommendation):
+        """Fallback placeholder explanations"""
         explanations = [
             f"Based on your viewing history, we think you'll enjoy '{recommendation['title']}' because it shares similar themes and style with movies you've rated highly.",
             f"'{recommendation['title']}' is recommended for you due to its strong ratings from users with similar preferences to yours.",
@@ -592,7 +737,8 @@ class MovieRecommendationModel:
         
         return {
             'type': 'llm',
-            'content': random.choice(explanations)
+            'content': random.choice(explanations),
+            'source': 'placeholder'
         }
     
     def get_available_movies(self, search_term=""):
