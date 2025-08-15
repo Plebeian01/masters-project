@@ -525,7 +525,7 @@ class MovieRecommendationModel:
             return None
         elif explanation_type == 'basic':
             return {
-                'type': 'basic',
+                'type': 'basic',                            
                 'content': f"Predicted rating: {recommendation['predicted_rating']:.3f}/5, Uplift score: {recommendation['uplift']:.3f}"
             }
         elif explanation_type == 'shap':
@@ -563,81 +563,58 @@ class MovieRecommendationModel:
             return float('-inf')
         return 1.0 - ss_res / ss_tot
 
-    def _explain_with_lime_tuned(self, fv_row, num_features=5, seeds=(7, 11, 19, 23, 31)):
-        """Tune kernel_width by local fidelity and report stability of top-k features."""
-    
+    def _explain_with_lime(self, fv_row, num_features=5, seeds=None):
         instance = fv_row.values
-    
+
         def predict_fn(X):
             df = pd.DataFrame(X, columns=self.original_X_columns)
             return self.model.predict(df)
-    
-        # Safety: fallbacks if training ref is missing
+
         train_X = self.X_train_ref
-        if train_X is None or len(getattr(train_X, "columns", [])) == 0:
+        if train_X is None or train_X.empty:
+            logger.warning("LIME explainer called with no training data reference.")
+            # Fallback to a zeroed-out frame to prevent crashing
             train_X = pd.DataFrame(np.zeros((1, len(self.original_X_columns))), columns=self.original_X_columns)
-    
-        # tune kernel width 
-        best_exp, best_kw, best_r2 = None, None, float('-inf')
-        for kw in self._candidate_kernel_widths():
-            tuner_explainer = llt.LimeTabularExplainer(
-                training_data=train_X.values,
-                feature_names=train_X.columns.tolist(),
-                mode='regression',
-                discretize_continuous=False,
-                sample_around_instance=True,
-                kernel_width=kw,
-                random_state=42
-            )
-            exp = tuner_explainer.explain_instance(
-                data_row=instance,
-                predict_fn=predict_fn,
-                num_features=num_features,
-                model_regressor=Ridge(alpha=10.0)
-            )
-            r2 = self._lime_local_fidelity(exp, predict_fn)
-            if r2 > best_r2:
-                best_exp, best_kw, best_r2 = exp, kw, r2
-    
-        # Extract best features (if any)
-        best_feats = best_exp.as_list() if best_exp is not None else []
-        features = [{"feature": name, "contribution": float(w)} for name, w in best_feats]
-        topk = [name for name, _ in best_feats]
-    
-        # -------- stability across seeds (rebuild explainer with best_kw each time) --------
-        topk_sets = []
-        for s in seeds:
-            stab_explainer = llt.LimeTabularExplainer(
-                training_data=train_X.values,
-                feature_names=train_X.columns.tolist(),
-                mode='regression',
-                discretize_continuous=False,
-                sample_around_instance=True,
-                kernel_width=best_kw if best_kw is not None else 1.0,
-                random_state=s
-            )
-            exp_s = stab_explainer.explain_instance(
+
+        # Use LIME's default kernel width by not specifying it.
+        explainer = llt.LimeTabularExplainer(
+            training_data=train_X.values,
+            feature_names=train_X.columns.tolist(),
+            mode='regression',
+            discretize_continuous=True,
+            sample_around_instance=True,
+            random_state=42
+        )
+
+        try:
+            explanation = explainer.explain_instance(
                 data_row=instance,
                 predict_fn=predict_fn,
                 num_features=num_features
             )
-            topk_sets.append({name for name, _ in exp_s.as_list()})
-    
-        def jaccard(a, b):
-            inter = len(a & b)
-            union = len(a | b) or 1
-            return inter / union
-    
-        base = set(topk)
-        stability = float(np.mean([jaccard(base, s) for s in topk_sets])) if topk_sets else 0.0
-    
-        return {
-            'type': 'lime',
-            'features': features,
-            'kernel_width': float(best_kw) if best_kw is not None else None,
-            'local_R2': float(best_r2) if np.isfinite(best_r2) else None,
-            'stability_jaccard': stability
-        }
+            
+            # Extract features and return in the expected format
+            lime_features = explanation.as_list()
+            features = [{"feature": name, "contribution": float(w)} for name, w in lime_features]
+            
+            return {
+                'type': 'lime',
+                'features': features,
+                'kernel_width': None,  # Not tuned, so not available
+                'local_R2': None, # Not calculated in this simplified version
+                'stability_jaccard': None # Not calculated
+            }
+
+        except Exception as e:
+            logger.error(f"LIME explain_instance failed: {str(e)}")
+            # Return an empty explanation payload on failure
+            return {
+                'type': 'lime',
+                'features': [],
+                'kernel_width': None,
+                'local_R2': None,
+                'stability_jaccard': None
+            }
 
     def generate_shap_explanation(self, recommendation, user_ratings_input):
         """Generate SHAP explanation with additivity and ablation diagnostics (DenseData-safe)."""
@@ -810,7 +787,7 @@ class MovieRecommendationModel:
                 fv = pd.DataFrame([row], columns=self.original_X_columns).fillna(0)
 
                 # Use tuned LIME with fidelity and stability metrics
-                return self._explain_with_lime_tuned(fv.iloc[0], num_features=5)
+                return self._explain_with_lime(fv.iloc[0], num_features=5)
         
         except Exception as e:
             logger.warning(f"Could not generate LIME explanation: {str(e)}")
@@ -1009,7 +986,7 @@ Explanation:"""
             # ---------- LIME ----------
             try:
 
-                lime_exp = self._explain_with_lime_tuned(fv.iloc[0], num_features=5)
+                lime_exp = self._explain_with_lime(fv.iloc[0], num_features=5)
                 lime_feats = (lime_exp.get('features') or lime_exp.get('top_features') or [])
             
                 # Convert to SHAP-like items: [{'feature', 'contribution', 'feature_value'}]
