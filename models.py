@@ -584,7 +584,7 @@ class MovieRecommendationModel:
                 training_data=train_X.values,
                 feature_names=train_X.columns.tolist(),
                 mode='regression',
-                discretize_continuous=False,
+                discretize_continuous=True,
                 sample_around_instance=True,
                 kernel_width=kw,
                 random_state=42
@@ -611,7 +611,7 @@ class MovieRecommendationModel:
                 training_data=train_X.values,
                 feature_names=train_X.columns.tolist(),
                 mode='regression',
-                discretize_continuous=False,
+                discretize_continuous=True,
                 sample_around_instance=True,
                 kernel_width=best_kw if best_kw is not None else 1.0,
                 random_state=s
